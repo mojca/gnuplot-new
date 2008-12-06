@@ -406,6 +406,8 @@
 
 /* latex and emtex */
 #include "latex.trm"
+/* context */
+#include "context.trm"
 
 /* latex/tex with picture in postscript */
 #ifdef PSLATEX_DRIVER
