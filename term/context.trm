@@ -2105,6 +2105,11 @@ CONTEXT_filled_polygon (int points, gpiPoint *corners)
 		CONTEXT_endpath();
 	}
 	
+	/* if the first point equals the last one, skip drawing the last point; --cycle does that already */
+	if((corners[0].x == corners[points-1].x) && (corners[0].y == corners[points-1].y)) {
+		points--;
+	}
+	
 	/* create new path with corners */
 	fputs("p := ", gpoutfile);
 	fprintf(gpoutfile, "(%.2fa,%.2fb)", corners[0].x/100.0, corners[0].y/100.0);
