@@ -1044,10 +1044,12 @@ CONTEXT_options()
 		"%g%s", CONTEXT_params.fontsize.value, unit_name(CONTEXT_params.fontsize.unit)
 		);
 	strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+	/* just for debugging:
 	snprintf(tmp_term_options, sizeof(tmp_term_options),
 		"(%d)", sizeof(term_options)
 		);
 	strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+	*/
 }
 
 /* *************
@@ -2035,6 +2037,12 @@ TERM_PUBLIC void
 CONTEXT_set_color (t_colorspec *colorspec)
 {
 	double gray, r, g, b;
+	/* ConTeXt doesn't offer full support for palettes yet
+	   (I don't know how to trick metapost to accept the full palette specification)
+	   so we convert the colors from palettes to RGB instead.
+	   If terminal starts supporting palettes, this behaviour will change.
+	*/
+	rgb_color rgb1;
 
 /* If (colorspec->type == TC_FRAC):
    Set current color according to colorspec->value, where 0 <= value <= 1.
@@ -2062,20 +2070,25 @@ CONTEXT_set_color (t_colorspec *colorspec)
 		r = (double)((colorspec->lt >> 16 ) & 255) / 255.;
 		g = (double)((colorspec->lt >> 8 ) & 255) / 255.;
 		b = (double)(colorspec->lt & 255) / 255.;
-		
+
 		fprintf(gpoutfile, "gp_set_color(rgb(%3.2f,%3.2f,%3.2f));\n", r, g, b);
 		CONTEXT_color_changed = TRUE;
 		break;
-	
+
 	/* map [0:1] to gray colors or to the corresponding color from the palette */
 	case TC_FRAC:
 		gray = colorspec->value;
-		
+
 		/* limit negative and >1 values to [0:1] first */
 		if(gray < 0) gray = 0;
 		if(gray > 1) gray = 1;
-		
-		fprintf(gpoutfile, "gp_set_color(frac(%.4f));\n", gray);
+
+		/* TODO: if ConTeXt start supporting palettes, we'll uncomment the following: */
+		fprintf(gpoutfile, "%%gp_set_color(frac(%.4f));\n", gray);
+		/* but now it doesn't, so let's use the fallback instead: */
+		rgb1maxcolors_from_gray(gray, &rgb1);
+		fprintf(gpoutfile, "gp_set_color(rgb(%3.2f,%3.2f,%3.2f));\n", rgb1.r, rgb1.g, rgb1.b);
+
 		CONTEXT_color_changed = TRUE;
 		break;
 	default:
@@ -2104,13 +2117,13 @@ CONTEXT_filled_polygon (int points, gpiPoint *corners)
 	if(CONTEXT_path_count > 0) {
 		CONTEXT_endpath();
 	}
-	
+
 	/* if the first point equals the last one, skip the last point; --cycle does that already
 	 * this condition is probably always true in gnuplot, so the if condition may not be needed */
 	if((corners[0].x == corners[points-1].x) && (corners[0].y == corners[points-1].y)) {
 		points--;
 	}
-	
+
 	/* create new path with corners */
 	fputs("p := ", gpoutfile);
 	fprintf(gpoutfile, "(%.2fa,%.2fb)", corners[0].x/100.0, corners[0].y/100.0);
