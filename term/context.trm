@@ -717,10 +717,14 @@ CONTEXT_options()
 		case CONTEXT_OPT_COLOR:
 			c_token++;
 			CONTEXT_params.color = TRUE;
+			/* just mimick other terminals; no idea what it does;
+			   at the moment monochrome is not fully implemented either */
+			term->flags &= ~TERM_MONOCHROME;
 			break;
 		case CONTEXT_OPT_MONOCHROME:
 			c_token++;
 			CONTEXT_params.color = FALSE;
+			term->flags |= TERM_MONOCHROME;
 			break;
 		case CONTEXT_OPT_DASHED:
 			c_token++;
