@@ -2196,10 +2196,11 @@ TERM_TABLE_START(context_driver)
 	, CONTEXT_make_palette,
 	0, /* XXX: CONTEXT_previous_palette: not sure if we need it at all (PS does "grestore") */
 	CONTEXT_set_color,
-	CONTEXT_filled_polygon
-#ifdef WITH_IMAGE
-	, 0 /* XXX: will be CONTEXT_image */
-#endif /* WITH_IMAGE */
+	CONTEXT_filled_polygon,
+	0,       /* image; TODO: implement it (CONTEXT_image) */
+	0, 0, 0, /* No enhanced text mode because this is TeX */
+	0,       /* layer (used to signal front/back text, used in canvas, PS, epslatex, ...); XXX: figure out what this has to do */
+	0        /* path (Path control for end-joins of closed polygons on PostScript-like devices); TODO: implement it (CONTEXT_path) */
 TERM_TABLE_END(context_driver)
 #undef LAST_TERM
 #define LAST_TERM context_driver
