@@ -1862,13 +1862,20 @@ CONTEXT_fill(int style)
 	/* do some strange trickery */
 	switch(style & 0xf) {
 
+	case FS_TRANSPARENT_SOLID:
+		/* just a flag to tell the terminal that density() should be used to interpret transparency */
+		fprintf(gpoutfile, ",transparent");
 	case FS_SOLID:
 		/* fill the box with density "density": if no parameter density is specified,
 		   it implies 100% density by default */
 		if (density < 100) {
-			fprintf(gpoutfile, ",density(%.2f)", density/100.0);
+			fprintf(gpoutfile, ",density(%.2f)", density*0.01);
 		}
 		break;
+
+	case FS_TRANSPARENT_PATTERN:
+		/* just a flag that should be interpreted in metapost, bun no idea what transparent pattern means */
+		fprintf(gpoutfile, ",transparent");
 	case FS_PATTERN:
 		pattern = (style >> 4);
 		fprintf(gpoutfile, ",pattern(%d)", pattern);
