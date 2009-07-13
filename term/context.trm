@@ -99,14 +99,11 @@
  * Future plans:
  * - add missing functionality:
  *   - improved support for palettes
- *   - binary images
+ *   - support for binary images
  *   - smooth shading in color bars
- *   - transparent colors and other color spaces
+ *   - other color spaces
  *   - gouraud shading (once implemented in 4.3)
  * - derive a better metapost terminal out of this one (to replace the old one)
- * - a new terminal based on TukZ
- *   - compatible with LaTeX/ConTeX/plain TeX
- *   - works with e-TeX/pdfTeX/XeTeX/luaTeX/etc.
  */
 
 #include "driver.h"
