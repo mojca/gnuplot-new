@@ -515,7 +515,8 @@ static struct gen_table CONTEXT_opts[] = {
 	{ "dl", CONTEXT_OPT_SCALE_DASHLENGTH },
 	{ "linew$idth", CONTEXT_OPT_SCALE_LINEWIDTH },
 	{ "lw", CONTEXT_OPT_SCALE_LINEWIDTH },
-	{ "textscale", CONTEXT_OPT_SCALE_TEXT },
+	{ "fontscale", CONTEXT_OPT_SCALE_TEXT },
+	{ "textscale", CONTEXT_OPT_SCALE_TEXT }, /* backward compatibility */
 	{ "textext", CONTEXT_OPT_TEXT_TEXTEXT },
 	{ "sometxt", CONTEXT_OPT_TEXT_SOMETXT },
 	{ "pointswithmp", CONTEXT_OPT_POINTS_WITH_METAPOST},
@@ -1004,7 +1005,7 @@ CONTEXT_options()
 	}
 
 	snprintf(tmp_term_options, sizeof(tmp_term_options),
-		" %s dashlength %g linewidth %g textscale %g \\\n   ",
+		" %s dashlength %g linewidth %g fontscale %g \\\n   ",
 		CONTEXT_params.dashed ? "dashed" : "solid",
 		CONTEXT_params.scale_dashlength,
 		CONTEXT_params.scale_linewidth,
@@ -2194,7 +2195,9 @@ TERM_TABLE_START(context_driver)
 	CONTEXT_linetype, CONTEXT_put_text, CONTEXT_text_angle,
 	CONTEXT_justify_text, CONTEXT_point, CONTEXT_arrow, CONTEXT_set_font,
 	CONTEXT_pointsize,
-	TERM_BINARY /* flags */, 0 /* suspend */, 0 /* resume*/, /* XXX: why did I put binary here? */
+	/* also add TERM_CAN_CLIP once you understand what it does; Why binary? Because of UTF-8? */
+	TERM_BINARY | TERM_CAN_DASH | TERM_ALPHA_CHANNEL | TERM_LINEWIDTH | TERM_FONTSCALE | TERM_IS_LATEX /* flags */,
+	0 /* suspend */, 0 /* resume*/,
 	CONTEXT_fillbox, CONTEXT_linewidth
 #ifdef USE_MOUSE
 	, 0, 0, 0, 0, 0 /* no mouse support */
@@ -2246,13 +2249,13 @@ START_HELP(context)
 "                     {dashed | solid}",
 "                     {dashlength | dl <DL>}",
 "                     {linewidth | lw <LW>}",
-"                     {textscale <textscale>}",
+"                     {fontscale <fontscale>}",
 "                     {pointswithmetapost | pointswithmp | pointswithtex}",
 "                     {defaultfont | font {<fontsize>} |",
 "                      font \"<fontname>{,<fontsize>}\" {fontsize}}",
 "",
 " In non-standalone (`input`) graphic only parameters `size` to select graphic",
-" size, `textscale` to scale all the labels for a factor <scale>",
+" size, `fontscale` to scale all the labels for a factor <fontscale>",
 " and font size, make sense, the rest is silently",
 " ignored and should be configured in the .tex file which inputs the graphic."
 " It's highly recommended to set the proper fontsize if document font differs from",
@@ -2293,7 +2296,7 @@ START_HELP(context)
 " `dashlength` or `dl` scales the length of the dashed-line segments by <DL>.",
 " `linewidth` or `lw` scales all linewidths by <LW>."
 " (lw 1 stands for 0.4bp, which is the default line width when drawing with Metapost.)",
-" `textscale` scales text labels for factor <textscale> relative to default document font.",
+" `fontscale` scales text labels for factor <fontscale> relative to default document font.",
 "",
 " `pointswithmetapost` uses predefined point shapes, drawn in Metapost.",
 " `pointswithtex` uses easily configurable set of symbols, defined with ConTeXt",
@@ -2307,7 +2310,7 @@ START_HELP(context)
 "  set term context font \"myfont,ss\" 10pt",
 " will result in",
 "  \\setupbodyfont[myfont,ss,10pt]",
-" If you additionaly set `textscale` to 0.8 for example,",
+" If you additionaly set `fontscale` to 0.8 for example,",
 " then the resulting font will be 8pt big and",
 "  set label ... font \"myfont,12pt\"",
 " will come out as 9.6pt.\n",
