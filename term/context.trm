@@ -1626,6 +1626,11 @@ CONTEXT_fontstring_parse(char *from_string, char *to_string, int to_size, dimens
 	dimension->value = 0;
 	dimension->unit  = UNIT_PT;
 
+	/* on empty input just reset the font */
+	if(from_string[0] == 0) {
+		to_string[0] = 0;
+		return;
+	}
 	/* let's walk from comma to comma (or from start to stop)
 	 * and analyse content of each string separately */
 	/* as long as we don't hit the end of the string */
@@ -1688,7 +1693,7 @@ CONTEXT_fontstring_parse(char *from_string, char *to_string, int to_size, dimens
 			}
 		}
 	}
-	
+
 	/* it might have happened that the last character we wrote was a comma instead of 0,
 	 * so we have to make sure that we finish the string */
 	to_string[to_stop-1] = 0;
@@ -1748,7 +1753,7 @@ CONTEXT_set_font(const char *font)
 	/* saves font name & family to CONTEXT_font */
 	CONTEXT_fontstring_parse((char *)font, CONTEXT_font, sizeof(CONTEXT_font), &CONTEXT_fontsize_explicit);
 	strncpy(CONTEXT_font_explicit, CONTEXT_font, sizeof(CONTEXT_font_explicit));
-	
+
 	/* valid fontsize has been provided */
 	if (CONTEXT_fontsize_explicit.value > 0) { /* XXX: if valid */
 
