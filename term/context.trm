@@ -1869,6 +1869,9 @@ CONTEXT_fill(int style)
 	/* do some strange trickery */
 	switch(style & 0xf) {
 
+	case FS_DEFAULT:
+		break;
+
 	case FS_TRANSPARENT_SOLID:
 		/* just a flag to tell the terminal that density() should be used to interpret transparency */
 		fprintf(gpoutfile, ",transparent");
