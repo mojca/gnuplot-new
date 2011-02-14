@@ -1,5 +1,5 @@
 /*
- * $Id: term_api.h,v 1.75 2008/09/16 05:35:25 sfeam Exp $
+ * $Id: term_api.h,v 1.77 2008/12/12 21:06:13 sfeam Exp $
  */
 
 /* GNUPLOT - term_api.h */
@@ -134,7 +134,7 @@ typedef struct fill_style_type {
     int fillstyle;
     int filldensity;
     int fillpattern;
-    int border_linetype;
+    t_colorspec border_color;
 } fill_style_type;
 
 typedef enum t_fillstyle { FS_EMPTY, FS_SOLID, FS_PATTERN, FS_DEFAULT, 
@@ -376,7 +376,7 @@ extern TBOOLEAN ignore_enhanced_text;
 /* Prototypes of functions exported by term.c */
 
 void term_set_output __PROTO((char *));
-void term_init __PROTO((void));
+void term_initialise __PROTO((void));
 void term_start_plot __PROTO((void));
 void term_end_plot __PROTO((void));
 void term_start_multiplot __PROTO((void));

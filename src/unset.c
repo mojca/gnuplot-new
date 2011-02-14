@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: unset.c,v 1.125 2008/09/24 03:19:07 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: unset.c,v 1.127 2008/12/11 06:53:14 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - unset.c */
@@ -654,7 +654,7 @@ unset_fillstyle()
     default_fillstyle.fillstyle = FS_EMPTY;
     default_fillstyle.filldensity = 100;
     default_fillstyle.fillpattern = 0;
-    default_fillstyle.border_linetype = LT_DEFAULT;
+    default_fillstyle.border_color.type = TC_DEFAULT;
 }
 
 
@@ -1454,7 +1454,7 @@ unset_view()
 {
     splot_map_deactivate();
     splot_map = FALSE;
-    aspect_ratio_3D = 0.0;
+    aspect_ratio_3D = 0;
     surface_rot_z = 30.0;
     surface_rot_x = 60.0;
     surface_scale = 1.0;

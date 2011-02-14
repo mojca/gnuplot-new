@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: show.c,v 1.221 2008/11/15 19:38:54 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: show.c,v 1.225 2008/12/17 20:45:52 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - show.c */
@@ -529,7 +529,7 @@ show_command()
 #endif
     case S_PLOT:
 	show_plot();
-#if defined(READLINE) || defined(HAVE_LIBREADLINE)
+#if defined(READLINE) || defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
 	if (!END_OF_COMMAND) {
 	    if (almost_equals(c_token, "a$dd2history")) {
 		c_token++;
@@ -860,12 +860,16 @@ show_version(FILE *fp)
 		"READLINE  ";
 
 	    const char *gnu_rdline =
-#ifdef HAVE_LIBREADLINE
+#if defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
 		"+"
 #else
 		"-"
 #endif
+#ifdef HAVE_LIBEDITLINE
+		"LIBEDITLINE  "
+#else
 		"LIBREADLINE  "
+#endif
 #ifdef GNUPLOT_HISTORY
 		"+"
 #else
@@ -1063,18 +1067,17 @@ show_version(FILE *fp)
 
 	    if (driverdir == NULL)
 		driverdir = X11_DRIVER_DIR;
-	    fprintf(stderr, "\
-DRIVER_DIR     = \"%s\"\n", driverdir);
+	    fprintf(stderr, "GNUPLOT_DRIVER_DIR = \"%s\"\n", driverdir);
 	}
 #endif
 
 #ifdef GNUPLOT_PS_DIR
 	{
-	   fprintf(stderr, "GNUPLOT_PS_DIR = \"%s\"\n", GNUPLOT_PS_DIR);
+	    fprintf(stderr, "GNUPLOT_PS_DIR     = \"%s\"\n", GNUPLOT_PS_DIR);
 	}
 #endif
 
-	fprintf(stderr, "HELPFILE       = \"%s\"\n", helpfile);
+	fprintf(stderr, "HELPFILE           = \"%s\"\n", helpfile);
 
     }
 }
@@ -1196,16 +1199,12 @@ show_fillstyle()
     default:
         fprintf(stderr, "\tFill style is empty");
     }
-    switch(default_fillstyle.border_linetype) {
-    case LT_NODRAW:
+    if (default_fillstyle.border_color.type == TC_LT && default_fillstyle.border_color.lt == LT_NODRAW)
 	fprintf(stderr," with no border\n");
-	break;
-    case LT_DEFAULT:
-	fprintf(stderr," with border\n");
-	break;
-    default:
-	fprintf(stderr," with border linetype %d\n",default_fillstyle.border_linetype+1);
-	break;
+    else {
+	fprintf(stderr," with border ");
+	save_pm3dcolor(stderr, &default_fillstyle.border_color);
+	fprintf(stderr,"\n");
     }
 }
 
@@ -2433,8 +2432,9 @@ show_view()
     }
     fprintf(stderr, "%g rot_x, %g rot_z, %g scale, %g scale_z\n",
 		surface_rot_x, surface_rot_z, surface_scale, surface_zscale);
-    fprintf(stderr,"\t\taxes are %s\n",
-		aspect_ratio_3D == 1.0 ? "on the same scale" : "independently scaled");
+    fprintf(stderr,"\t\t%s axes are %s\n",
+		aspect_ratio_3D == 2 ? "x/y" : aspect_ratio_3D == 3 ? "x/y/z" : "",
+		aspect_ratio_3D >= 2 ? "on the same scale" : "independently scaled");
 }
 
 

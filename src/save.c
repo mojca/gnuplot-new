@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: save.c,v 1.167 2008/10/31 16:25:26 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: save.c,v 1.169 2008/12/11 06:53:14 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - save.c */
@@ -570,10 +570,11 @@ set encoding %s\n\
     if (splot_map == TRUE)
 	fputs("map", fp);
     else {
-	/* fprintf(fp, "%sequal_axes ", aspect_ratio_3D == 1.0 ? "" : "no"); */
 	fprintf(fp, "%g, %g, %g, %g",
 	    surface_rot_x, surface_rot_z, surface_scale, surface_zscale);
     }
+    fprintf(fp, "\nset view %s", aspect_ratio_3D == 2 ? "equal xy" :
+                                 aspect_ratio_3D == 3 ? "equal xyz": "");
 
     fprintf(fp, "\n\
 set samples %d, %d\n\
@@ -1099,12 +1100,12 @@ save_fillstyle(FILE *fp, const struct fill_style_type *fs)
 	fprintf(fp, " empty ");
 	break;
     }
-    if (fs->border_linetype == LT_NODRAW)
+    if (fs->border_color.type == TC_LT && fs->border_color.lt == LT_NODRAW)
 	fprintf(fp, "noborder\n");
-    else if (fs->border_linetype == LT_DEFAULT)
-	fprintf(fp, "border\n");
     else
-	fprintf(fp, "border %d\n",fs->border_linetype+1);
+	fprintf(fp, "border");
+	save_pm3dcolor(fp, &fs->border_color);
+	fprintf(fp, "\n");
 }
 
 void

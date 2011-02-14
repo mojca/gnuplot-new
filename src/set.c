@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: set.c,v 1.294 2008/11/02 03:38:38 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: set.c,v 1.296 2008/12/11 06:53:14 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - set.c */
@@ -3720,11 +3720,11 @@ set_obj(int tag, int obj_type)
 	    if (new_obj)
 		parse_fillstyle(&this_object->fillstyle, default_style->fillstyle,
 			default_style->filldensity, default_style->fillpattern,
-			default_style->border_linetype);
+			default_style->border_color);
 	    else
 		parse_fillstyle(&this_object->fillstyle, this_object->fillstyle.fillstyle,
 			this_object->fillstyle.filldensity, this_object->fillstyle.fillpattern,
-			this_object->fillstyle.border_linetype);
+			this_object->fillstyle.border_color);
 	    if (c_token != save_token) {
 		got_fill = TRUE;
 		continue;
@@ -3876,7 +3876,7 @@ set_style()
 			default_fillstyle.fillstyle,
 			default_fillstyle.filldensity,
 			default_fillstyle.fillpattern,
-			default_fillstyle.border_linetype);
+			default_fillstyle.border_color);
 	break;
     case SHOW_STYLE_ARROW:
 	set_arrowstyle();
@@ -4389,11 +4389,19 @@ set_view()
     }
 
     if (almost_equals(c_token,"equal$_axes")) {
-	aspect_ratio_3D = 1.0;
 	c_token++;
+	if (END_OF_COMMAND || equals(c_token,"xy")) {
+	    aspect_ratio_3D = 2;
+	    c_token++;
+	} else if (equals(c_token,"xyz")) {
+	    aspect_ratio_3D = 3;
+	    c_token++;
+	}
+	return;
     } else if (almost_equals(c_token,"noequal$_axes")) {
-	aspect_ratio_3D = 0.0;
+	aspect_ratio_3D = 0;
 	c_token++;
+	return;
     }
 
     local_vals[0] = surface_rot_x;
