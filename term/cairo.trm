@@ -1,5 +1,5 @@
 /* Hello, Emacs: this is -*-C-*- !
- * $Id: cairo.trm,v 1.31 2009/07/04 07:05:17 sfeam Exp $
+ * $Id: cairo.trm,v 1.41 2010/11/08 19:33:12 sfeam Exp $
  */
 
 /* GNUPLOT - cairo.trm */
@@ -81,6 +81,9 @@ TERM_PUBLIC void cairotrm_filled_polygon __PROTO ((int n, gpiPoint * corners));
 
 #define CAIROTRM_DEFAULT_FONTNAME "Sans"
 
+static cairo_status_t cairostream_write __PROTO ((void *closure, unsigned char *data, unsigned int length));
+static int cairostream_error[1];
+
 /* Terminal type of postscript dialect */
 enum CAIRO_TERMINALTYPE {
     CAIROTERM_PDF, CAIROTERM_PNG
@@ -100,6 +103,7 @@ typedef struct cairo_params_t {
     TBOOLEAN crop;
     char fontname[MAX_ID_LEN + 1];    /* name of font */
     int fontsize;                     /* size of font in pts */
+    float fontscale;                  /* modified by this */
     float width;
     float height;
     float base_linewidth;
@@ -107,15 +111,15 @@ typedef struct cairo_params_t {
 } cairo_params_t;
 
 #define CAIROPDF_PARAMS_DEFAULT { \
-    CAIROTERM_PDF, INCHES, FALSE, FALSE, 1.0, FALSE, FALSE, FALSE, FALSE, "", 6, \
-    5*72., 3*72., 0.25, 1.0 \
+    CAIROTERM_PDF, INCHES, FALSE, FALSE, 1.0, FALSE, FALSE, FALSE, FALSE, "", \
+    12, 0.5, 5*72., 3*72., 0.25, 1.0 \
 }
 static cairo_params_t cairopdf_params = CAIROPDF_PARAMS_DEFAULT;
 static const cairo_params_t cairopdf_params_default = CAIROPDF_PARAMS_DEFAULT;
 
 #define CAIROPNG_PARAMS_DEFAULT { \
-    CAIROTERM_PNG, PIXELS, FALSE, FALSE, 1.0, FALSE, FALSE, FALSE, FALSE, "", 12, \
-    640., 480., 1.0, 1.0 \
+    CAIROTERM_PNG, PIXELS, FALSE, FALSE, 1.0, FALSE, FALSE, FALSE, FALSE, "", \
+    12, 1.0, 640., 480., 1.0, 1.0 \
 }
 static cairo_params_t cairopng_params = CAIROPNG_PARAMS_DEFAULT;
 static const cairo_params_t cairopng_params_default = CAIROPNG_PARAMS_DEFAULT;
@@ -127,6 +131,7 @@ plot_struct plot;
 
 enum CAIROTRM_id {
     CAIROTRM_FONT,
+    CAIROTRM_FONTSCALE,
     CAIROTRM_ENHANCED,
     CAIROTRM_NOENHANCED,
     CAIROTRM_SIZE,
@@ -146,6 +151,7 @@ enum CAIROTRM_id {
 };
 
 static struct gen_table cairotrm_opts[] = {
+    {"fontscale",   CAIROTRM_FONTSCALE},
     {"f$ont",   CAIROTRM_FONT},
     {"enh$anced", CAIROTRM_ENHANCED},
     {"noenh$anced", CAIROTRM_NOENHANCED},
@@ -179,7 +185,7 @@ TERM_PUBLIC void cairotrm_options()
 	int sep;
 	TBOOLEAN duplication = FALSE;
 	TBOOLEAN set_enhanced = FALSE, set_font = FALSE, set_size = FALSE;
-	TBOOLEAN set_capjoin = FALSE;
+	TBOOLEAN set_capjoin = FALSE, set_fontscale = FALSE;
 	char tmp_term_options[MAX_LINE_LEN+1] = "";
 
 	/* Initialize terminal-dependent values */
@@ -225,7 +231,7 @@ TERM_PUBLIC void cairotrm_options()
 			break;
 		case CAIROTRM_NOENHANCED:
 			c_token++;
-			cairo_params->enhanced = TRUE;
+			cairo_params->enhanced = FALSE;
 			term->flags &= ~TERM_ENHANCED_TEXT;
 			if (set_enhanced) duplication=TRUE;
 			set_enhanced = TRUE;
@@ -280,6 +286,13 @@ TERM_PUBLIC void cairotrm_options()
 			cairo_params->dash_length = real_expression();
 			if (cairo_params->dash_length < 0.0)
 			    cairo_params->dash_length = cairo_params_default->dash_length;
+			break;
+		case CAIROTRM_FONTSCALE:
+			c_token++;
+			cairo_params->fontscale = END_OF_COMMAND ? -1 : real_expression();
+			if (cairo_params->fontscale <= 0.0)
+			    cairo_params->fontscale = cairo_params_default->fontscale;
+			set_fontscale = TRUE;
 			break;
 		case CAIROTRM_TRANSPARENT:
 			c_token++;
@@ -336,6 +349,12 @@ TERM_PUBLIC void cairotrm_options()
 	if (set_font) {
 		snprintf(tmp_term_options, sizeof(tmp_term_options), " font \"%s\"", font_setting);
 		free(font_setting);
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+	}
+
+	/* if (set_fontscale) */
+	{
+		snprintf(tmp_term_options, sizeof(tmp_term_options), " fontscale %.1f", cairo_params->fontscale);
 		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
 	}
 
@@ -403,9 +422,17 @@ void cairotrm_init()
 		cairo_destroy(plot.cr);
 
 	if (!strcmp(term->name,"pdfcairo")) {
-		surface = cairo_pdf_surface_create(outstr,
+		/* Output can either be a file or stdout */
+		if (!outstr) {
+		    surface = cairo_pdf_surface_create_for_stream(
+			(cairo_write_func_t)cairostream_write, cairostream_error,
 				plot.device_xmax /*double width_in_points*/,
 				plot.device_ymax /*double height_in_points*/);
+		} else {
+		    surface = cairo_pdf_surface_create(outstr,
+				plot.device_xmax /*double width_in_points*/,
+				plot.device_ymax /*double height_in_points*/);
+		}
 		/* it is up to the pdf viewer to do the hinting */
 		plot.hinting = 0;
 		/* disable OPERATOR_SATURATE, not implemented in cairo pdf backend,
@@ -479,7 +506,7 @@ void cairotrm_graphics()
 
 /* cairo mechanism to allow writing to an output stream */
 cairo_status_t
-cairopng_write(void *closure, unsigned char *data, unsigned int length)
+cairostream_write(void *closure, unsigned char *data, unsigned int length)
 {
 	if (length != fwrite(data, 1, length, gpoutfile))
 		return CAIRO_STATUS_WRITE_ERROR;
@@ -578,9 +605,8 @@ void cairotrm_text()
 	 * to be written */
 	cairo_show_page(plot.cr);
 	if (!strcmp(term->name,"pngcairo")) {
-		int error_data[1];
 		cairo_surface_write_to_png_stream(cairopng_do_crop(),
-			(cairo_write_func_t)cairopng_write, error_data);
+			(cairo_write_func_t)cairostream_write, cairostream_error);
 	}
 
 	FPRINTF((stderr,"status = %s\n",cairo_status_to_string(cairo_status(plot.cr))));
@@ -609,45 +635,57 @@ void cairotrm_vector(unsigned int x, unsigned int y)
 
 void cairotrm_put_text(unsigned int x, unsigned int y, const char * string)
 {
+	if (!string || !strlen(string))
+		return;
+
 	/* if ignore_enhanced_text is set, draw with the normal routine.
 	 * This is meant to avoid enhanced syntax when the enhanced mode is on */
-	if (cairo_params->enhanced && !ignore_enhanced_text) {
-		/* Uses enhanced_recursion() to analyse the string to print.
-		 * enhanced_recursion() calls _enhanced_open() to initialize the text drawing,
-		 * then it calls _enhanced_writec() which buffers the characters to draw,
-		 * and finally _enhanced_flush() to draw the buffer with the correct justification. */
-
-		gp_cairo_enhanced_init(&plot, strlen(string));
-
-		/* set up the global variables needed by enhanced_recursion() */
-		enhanced_fontscale = 1.0;
-		strncpy(enhanced_escape_format, "%c", sizeof(enhanced_escape_format));
-
-		/* Set the recursion going. We say to keep going until a
-		* closing brace, but we don't really expect to find one.
-		* If the return value is not the nul-terminator of the
-		* string, that can only mean that we did find an unmatched
-		* closing brace in the string. We inplot->crement past it (else
-		* we get stuck in an infinite loop) and try again. */
-
-		while (*(string = enhanced_recursion((char*)string, TRUE, plot.fontname,
-				plot.fontsize, 0.0, TRUE, TRUE, 0))) {
-			cairotrm_enhanced_flush();
-
-			/* we can only get here if *str == '}' */
-			enh_err_check(string);
-
-			if (!*++string)
-				break; /* end of string */
-			/* else carry on and process the rest of the string */
-		}
-
-		/* finish */
-		gp_cairo_enhanced_finish(&plot, x, term->ymax - y);
+	if (ignore_enhanced_text || !cairo_params->enhanced) {
+		gp_cairo_draw_text(&plot, x, term->ymax - y, string);
 		return;
 	}
 
-	gp_cairo_draw_text(&plot, x, term->ymax - y, string);
+	/* If there are no mark-up characters we can use the normal routine */
+	if (!strpbrk(string, "{}^_@&~")) {
+		gp_cairo_draw_text(&plot, x, term->ymax - y, string);
+		return;
+	}
+
+	/* Uses enhanced_recursion() to analyse the string to print.
+	 * enhanced_recursion() calls _enhanced_open() to initialize the text drawing,
+	 * then it calls _enhanced_writec() which buffers the characters to draw,
+	 * and finally _enhanced_flush() to draw the buffer with the correct justification. */
+
+	gp_cairo_enhanced_init(&plot, strlen(string));
+
+	/* set up the global variables needed by enhanced_recursion() */
+	enhanced_fontscale = cairo_params->fontscale;
+	strncpy(enhanced_escape_format, "%c", sizeof(enhanced_escape_format));
+
+	/* Set the recursion going. We say to keep going until a
+	* closing brace, but we don't really expect to find one.
+	* If the return value is not the nul-terminator of the
+	* string, that can only mean that we did find an unmatched
+	* closing brace in the string. We inplot->crement past it (else
+	* we get stuck in an infinite loop) and try again. */
+
+	while (*(string = enhanced_recursion((char*)string, TRUE, 
+			plot.fontname, plot.fontsize,
+			0.0, TRUE, TRUE, 0))) {
+		cairotrm_enhanced_flush();
+
+		/* we can only get here if *str == '}' */
+		enh_err_check(string);
+
+		if (!*++string)
+			break; /* end of string */
+		/* else carry on and process the rest of the string */
+	}
+
+	/* finish */
+	gp_cairo_enhanced_finish(&plot, x, term->ymax - y);
+	return;
+
 }
 
 void cairotrm_enhanced_flush()
@@ -662,7 +700,8 @@ void cairotrm_enhanced_writec(int c)
 
 void cairotrm_enhanced_open(char* fontname, double fontsize, double base, TBOOLEAN widthflag, TBOOLEAN showflag, int overprint)
 {
-	gp_cairo_enhanced_open(&plot, fontname, fontsize, base, widthflag, showflag, overprint);
+	gp_cairo_enhanced_open(&plot, fontname, fontsize, 
+				base, widthflag, showflag, overprint);
 }
 
 void cairotrm_linetype(int lt)
@@ -718,10 +757,9 @@ int cairotrm_set_font (const char *font)
 			fontsize = cairo_params->fontsize;
 	}
 
-
 	/* Reset the term variables (hchar, vchar, h_tic, v_tic).
 	 * They may be taken into account in next plot commands */
-	gp_cairo_set_font(&plot, fontname, fontsize);
+	gp_cairo_set_font(&plot, fontname, fontsize * cairo_params->fontscale);
 	gp_cairo_set_termvar(&plot, &(term->v_char),
 				    &(term->h_char));
 
@@ -872,7 +910,7 @@ TERM_TABLE_START (pdfcairo_driver)
     cairotrm_text_angle, cairotrm_justify_text,
     cairotrm_point, do_arrow, cairotrm_set_font,
     cairotrm_pointsize,
-    TERM_CAN_MULTIPLOT|TERM_BINARY|TERM_CAN_DASH,
+    TERM_CAN_MULTIPLOT|TERM_BINARY|TERM_CAN_DASH|TERM_LINEWIDTH|TERM_FONTSCALE,
     0 /* suspend */, 0 /* resume */, cairotrm_fillbox, cairotrm_linewidth
 #ifdef USE_MOUSE
     , 0, 0, 0, 0, 0
@@ -897,7 +935,7 @@ TERM_TABLE_START (pngcairo_driver)
     cairotrm_text_angle, cairotrm_justify_text,
     cairotrm_point, do_arrow, cairotrm_set_font,
     cairotrm_pointsize,
-    TERM_BINARY|TERM_CAN_DASH|TERM_ALPHA_CHANNEL,
+    TERM_BINARY|TERM_CAN_DASH|TERM_ALPHA_CHANNEL|TERM_LINEWIDTH|TERM_FONTSCALE,
     0 /* suspend */, 0 /* resume */, cairotrm_fillbox, cairotrm_linewidth
 #ifdef USE_MOUSE
     , 0, 0, 0, 0, 0
@@ -929,7 +967,7 @@ START_HELP(pdfcairo)
 " Syntax:",
 "         set term pdfcairo",
 "                      {{no}enhanced} {mono|color} {solid|dashed}",
-"                      {font <font>}",
+"                      {font <font>} {fontscale <scale>}",
 "                      {linewidth <lw>} {rounded|butt} {dashlength <dl>}",
 "                      {size <XX>{unit},<YY>{unit}}",
 "",
@@ -940,14 +978,14 @@ START_HELP(pdfcairo)
 "",
 " The width of all lines in the plot can be modified by the factor <lw>",
 " specified in `linewidth`. The default linewidth is 0.25 points.",
-" (1 \"PostScript\" point = 1/72 inch = 0.353 cm)",
+" (1 \"PostScript\" point = 1/72 inch = 0.353 mm)",
 "",
 " `rounded` sets line caps and line joins to be rounded; `butt` is the",
 " default, butt caps and mitered joins.",
 "",
 " The default size for the output is 5 inches x 3 inches. The `size` option",
 " changes this to whatever the user requests. By default the X and Y sizes are",
-" taken to be in inches, but other units are possibly (currently only cm).",
+" taken to be in inches, but other units are possible (currently only cm).",
 " Screen coordinates always run from 0.0 to 1.0 along the full length of the",
 " plot edges as specified by the `size` option.",
 "",
@@ -955,7 +993,10 @@ START_HELP(pdfcairo)
 " comma-separated in a single string. FontFace is a usual font face name, such",
 " as \'Arial\'. If you do not provide FontFace, the pdfcairo terminal will use",
 " \'Sans\'. FontSize is the font size, in points. If you do not provide it,",
-" the pdfcairo terminal will use a size of 6 points.",
+" the pdfcairo terminal will use a nominal font size of 12 points.",
+" However, the default fontscale parameter for this terminal is 0.5,",
+" so the apparent font size is smaller than this if the pdf output is",
+" viewed at full size.",
 "    For example :",
 "       set term pdfcairo font \"Arial,12\"",
 "       set term pdfcairo font \"Arial\" # to change the font face only",
@@ -1013,7 +1054,8 @@ START_HELP(pngcairo)
 " Syntax:",
 "         set term pngcairo",
 "                      {{no}enhanced} {mono|color} {solid|dashed}",
-"                      {{no}transparent} {{no}crop} {font <font>}",
+"                      {{no}transparent} {{no}crop}",
+"                      {font <font>} {fontscale <scale>}",
 "                      {linewidth <lw>} {rounded|butt} {dashlength <dl>}",
 "                      {size <XX>{unit},<YY>{unit}}",
 "",
@@ -1024,14 +1066,16 @@ START_HELP(pngcairo)
 "",
 " The width of all lines in the plot can be modified by the factor <lw>",
 " specified in `linewidth`. The default linewidth is 0.25 points.",
-" (1 \"PostScript\" point = 1/72 inch = 0.353 cm)",
+" (1 \"PostScript\" point = 1/72 inch = 0.353 mm)",
 "",
 " `rounded` sets line caps and line joins to be rounded; `butt` is the",
 " default, butt caps and mitered joins.",
 "",
-" The default size for the output is 5 inches x 3 inches. The `size` option",
+" The default size for the output is 640 x 480 pixels. The `size` option",
 " changes this to whatever the user requests. By default the X and Y sizes are",
-" taken to be in inches, but other units are possibly (currently only cm).",
+" taken to be in pixels, but other units are possible (currently cm and inch).",
+" A size given in centimeters or inches will be converted into pixels assuming",
+" a resolution of 72 dpi (currently this can't be changed.)",
 " Screen coordinates always run from 0.0 to 1.0 along the full length of the",
 " plot edges as specified by the `size` option.",
 "",
@@ -1039,7 +1083,7 @@ START_HELP(pngcairo)
 " comma-separated in a single string. FontFace is a usual font face name, such",
 " as \'Arial\'. If you do not provide FontFace, the pngcairo terminal will use",
 " \'Sans\'. FontSize is the font size, in points. If you do not provide it,",
-" the pngcairo terminal will use a size of 6 points.",
+" the pngcairo terminal will use a size of 12 points.",
 "    For example :",
 "       set term pngcairo font \"Arial,12\"",
 "       set term pngcairo font \"Arial\" # to change the font face only",

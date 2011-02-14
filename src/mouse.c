@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: mouse.c,v 1.119 2009/07/05 00:06:54 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: mouse.c,v 1.128 2010/11/18 23:59:59 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - mouse.c */
@@ -71,6 +71,7 @@ static char *RCSid() { return RCSid("$Id: mouse.c,v 1.119 2009/07/05 00:06:54 sf
 #endif
 
 #ifdef OS2
+#include <os2.h>
 #include "os2/pm_msgs.h"
 #endif
 
@@ -257,11 +258,13 @@ static void put_label __PROTO((char *label, double x, double y));
 static void
 alert()
 {
-# ifdef GNUPMDRV
+# ifdef OS2
     DosBeep(444, 111);
 # else
 #  ifdef HAVE_LIBREADLINE
-    rl_ding();
+#    if !defined(MISSING_RL_DING)
+        rl_ding();
+#    endif
     fflush(rl_outstream);
 #  else
     fprintf(stderr, "\a");
@@ -369,22 +372,22 @@ MousePosToGraphPosReal(int xx, int yy, double *x, double *y, double *x2, double 
 static char *
 xy_format()
 {
-    static char format[0xff];
+    static char format[64];
     format[0] = NUL;
-    strcat(format, mouse_setting.fmt);
-    strcat(format, ", ");
-    strcat(format, mouse_setting.fmt);
+    strncat(format, mouse_setting.fmt, 30);
+    strncat(format, ", ", 2);
+    strncat(format, mouse_setting.fmt, 30);
     return format;
 }
 
 static char *
 zoombox_format()
 {
-    static char format[0xff];
+    static char format[64];
     format[0] = NUL;
-    strcat(format, mouse_setting.fmt);
-    strcat(format, "\r");
-    strcat(format, mouse_setting.fmt);
+    strncat(format, mouse_setting.fmt, 30);
+    strncat(format, "\r", 2);
+    strncat(format, mouse_setting.fmt, 30);
     return format;
 }
 
@@ -422,8 +425,25 @@ GetAnnotateString(char *s, double x, double y, int mode, char *fmt)
 	}
     } else if (mode == MOUSE_COORDINATES_REAL1) {
 	sprintf(s, xy_format(), x, y);	/* w/o brackets */
-    } else if (mode == MOUSE_COORDINATES_ALT && fmt) {
-	sprintf(s, fmt, x, y);	/* user defined format */
+    } else if (mode == MOUSE_COORDINATES_ALT && (fmt || polar)) {
+	if (polar) {
+	    double phi, r;
+	    double rmin = (R_AXIS.autoscale & AUTOSCALE_MIN) ? 0.0 : R_AXIS.set_min;
+	    phi = atan2(y,x);
+	    if (R_AXIS.log)
+		r = AXIS_UNDO_LOG(POLAR_AXIS, x/cos(phi) + AXIS_DO_LOG(POLAR_AXIS, rmin));
+	    else
+		r = x/cos(phi) + rmin;
+	    if (fmt)
+		sprintf(s, fmt, phi/ang2rad, r);
+	    else {
+		sprintf(s, "polar: ");
+		s += strlen(s);
+		sprintf(s, xy_format(), phi/ang2rad, r);
+	    }
+	} else {
+	    sprintf(s, fmt, x, y);	/* user defined format */
+	}
     } else {
 	sprintf(s, xy_format(), x, y);	/* usual x,y values */
     }
@@ -640,6 +660,7 @@ apply_zoom(struct t_zoom *z)
 	int i;
 	for (i=0; i<AXIS_ARRAY_SIZE; i++) {
 	    axis_array_copy[i].label = axis_array[i].label;
+	    axis_array_copy[i].ticdef.def.user = axis_array[i].ticdef.def.user;
 	}
 	memcpy(axis_array, axis_array_copy, sizeof(axis_array));
 	s[0] = '\0';	/* FIXME:  Is this better than calling replotrequest()? */
@@ -740,21 +761,18 @@ incr_mousemode(const int amount)
 {
     long int old = mouse_mode;
     mouse_mode += amount;
-    if (MOUSE_COORDINATES_ALT == mouse_mode && !mouse_alt_string) {
+    if (MOUSE_COORDINATES_ALT == mouse_mode && !(mouse_alt_string || polar))
 	mouse_mode += amount;	/* stepping over */
-    }
     if (mouse_mode > MOUSE_COORDINATES_ALT) {
 	mouse_mode = MOUSE_COORDINATES_REAL;
     } else if (mouse_mode < MOUSE_COORDINATES_REAL) {
 	mouse_mode = MOUSE_COORDINATES_ALT;
-	if (MOUSE_COORDINATES_ALT == mouse_mode && !mouse_alt_string) {
+	if (!(mouse_alt_string || polar))
 	    mouse_mode--;	/* stepping over */
-	}
     }
     UpdateStatusline();
-    if (display_ipc_commands()) {
+    if (display_ipc_commands())
 	fprintf(stderr, "switched mouse format from %ld to %ld\n", old, mouse_mode);
-    }
 }
 
 static void
@@ -1000,13 +1018,13 @@ builtin_nearest_log(struct gp_event_t *ge)
 	    change_y2 = TRUE;
 	
 	if (change_x1)
-	    do_string(axis_array[FIRST_X_AXIS].log ? "unset log x" : "set log x", FALSE);
+	    do_string(axis_array[FIRST_X_AXIS].log ? "unset log x" : "set log x");
 	if (change_y1)
-	    do_string(axis_array[FIRST_Y_AXIS].log ? "unset log y" : "set log y", FALSE);
+	    do_string(axis_array[FIRST_Y_AXIS].log ? "unset log y" : "set log y");
 	if (change_x2 && !splot_map)
-	    do_string(axis_array[SECOND_X_AXIS].log ? "unset log x2" : "set log x2", FALSE);
+	    do_string(axis_array[SECOND_X_AXIS].log ? "unset log x2" : "set log x2");
 	if (change_y2 && !splot_map)
-	    do_string(axis_array[SECOND_Y_AXIS].log ? "unset log y2" : "set log y2", FALSE);
+	    do_string(axis_array[SECOND_Y_AXIS].log ? "unset log y2" : "set log y2");
 	if (!change_x1 && !change_y1 && splot_map)
 	    do_string_replot( Z_AXIS.log ? "unset log z" : "set log z");
 	
@@ -1328,7 +1346,7 @@ event_keypress(struct gp_event_t *ge, TBOOLEAN current)
 		    /* FIXME - Better to clear MOUSE_[XY] than to set it wrongly. */
 		    /*         This may be worth a separate subroutine.           */
 		    load_mouse_variables(0, 0, FALSE, c);
-		do_string(ptr->command, FALSE);
+		do_string(ptr->command);
 		/* Treat as a current event after we return to x11.trm */
 		ge->type = GE_keypress;
 		break;
@@ -1337,7 +1355,7 @@ event_keypress(struct gp_event_t *ge, TBOOLEAN current)
 		break;
 	    /* Let user defined bindings overwrite the builtin bindings */
 	    } else if ((par2 & 1) == 0 && ptr->command) {
-		do_string(ptr->command, FALSE);
+		do_string(ptr->command);
 		break;
 	    } else if (ptr->builtin) {
 		ptr->builtin(ge);
@@ -1361,9 +1379,9 @@ ChangeView(int x, int z)
     if (x) {
 	surface_rot_x += x;
 	if (surface_rot_x < 0)
-	    surface_rot_x = 0;
-	if (surface_rot_x > 180)
-	    surface_rot_x = 180;
+	    surface_rot_x += 360;
+	if (surface_rot_x > 360)
+	    surface_rot_x -= 360;
     }
     if (z) {
 	surface_rot_z += z;
@@ -1392,6 +1410,16 @@ ChangeView(int x, int z)
     }
 }
 
+/* Return a new (upper or lower) axis limit that is a linear
+   combination of the current limits.  */
+static double
+rescale(int AXIS, double w1, double w2) 
+{
+  double logval, val;
+  logval = w1*axis_array[AXIS].min+w2*axis_array[AXIS].max;
+  val = AXIS_DE_LOG_VALUE(AXIS,logval);
+  return val;
+}
 
 static void
 event_buttonpress(struct gp_event_t *ge)
@@ -1410,10 +1438,183 @@ event_buttonpress(struct gp_event_t *ge)
 
     MousePosToGraphPosReal(mouse_x, mouse_y, &real_x, &real_y, &real_x2, &real_y2);
 
-    if (ALMOST2D) {
-	if (!setting_zoom_region) {
+
+    if (4 == b &&			/* wheel up */
+	(!replot_disabled || refresh_ok)	/* Use refresh if available */
+	&& !(paused_for_mouse & PAUSE_BUTTON3)) {
+      double xmin, ymin, x2min, y2min;
+      double xmax, ymax, x2max, y2max;
+      if (modifier_mask & Mod_Ctrl) {
+	if (modifier_mask & Mod_Shift) {
+	  /* zoom in (X axis only) */
+	  double w1=23./25.;
+	  double w2= 2./25.;
+	  xmin = rescale(FIRST_X_AXIS, w1, w2);
+	  ymin = rescale(FIRST_Y_AXIS, 1., 0.);
+	  x2min = rescale(SECOND_X_AXIS, w1, w2);
+	  y2min = rescale(SECOND_Y_AXIS, 1., 0.);
+
+	  xmax = rescale(FIRST_X_AXIS, w2,w1);
+	  ymax = rescale(FIRST_Y_AXIS, 0., 1.);
+	  x2max = rescale(SECOND_X_AXIS, w2, w1);
+	  y2max = rescale(SECOND_Y_AXIS, 0., 1.);
+
+	  do_zoom(xmin, ymin, x2min, y2min, xmax, ymax, x2max, y2max);
+	  if (display_ipc_commands()) {
+	    fprintf(stderr, "zoom in X.\n");
+	  }
+	} else {
+	  /* zoom in (factor of approximatly 2^(.25), so four steps gives 2x larger) */
+	  double w1=23./25.;
+	  double w2= 2./25.;
+	  xmin = rescale(FIRST_X_AXIS,  w1, w2);
+	  ymin = rescale(FIRST_Y_AXIS,  w1, w2);
+	  x2min = rescale(SECOND_X_AXIS, w1, w2);
+	  y2min = rescale(SECOND_Y_AXIS, w1, w2);
+
+	  xmax = rescale(FIRST_X_AXIS,  w2, w1);
+	  ymax = rescale(FIRST_Y_AXIS,  w2, w1);
+	  x2max = rescale(SECOND_X_AXIS, w2, w1);
+	  y2max = rescale(SECOND_Y_AXIS, w2, w1);
+
+	  do_zoom(xmin, ymin, x2min, y2min, xmax, ymax, x2max, y2max);
+	  if (display_ipc_commands()) {
+	    fprintf(stderr, "zoom in.\n");
+	  }
+	}
+      } else {
+#if DO_ZOOM_AND_APPLY_ZOOM_FIXED_TO_HANDLE_Z_AXIS
+	if (modifier_mask & Mod_Alt) {
+	  /* scroll in +Z direction */
+	  xmin = rescale(FIRST_X_AXIS, 1., 0.);
+	  ymin = rescale(FIRST_Y_AXIS, 1., 0.);
+	  x2min = rescale(SECOND_X_AXIS, 1., 0.);
+	  y2min = rescale(SECOND_Y_AXIS, 1., 0.);
+	  zmin = rescale(FIRST_Z_AXIS, .9, .1);
+	  
+	  xmax = rescale(FIRST_X_AXIS,  0., 1.);
+	  ymax = rescale(FIRST_Y_AXIS,  0., 1.);
+	  x2max = rescale(SECOND_X_AXIS, 0., 1.);
+	  y2max = rescale(SECOND_Y_AXIS, 0., 1.);
+	  zmax = rescale(FIRST_Z_AXIS, 1.1, -.1);
+	  do_zoom(xmin, ymin, x2min, y2min, zmin, xmax, ymax, x2max, y2max, zmax);
+	  if (display_ipc_commands()) {
+	    fprintf(stderr, "scroll left.\n");
+	  }
+	} else 
+#endif
+	  if (modifier_mask & Mod_Shift) {
+	  /* scroll left */
+          xmin = rescale(FIRST_X_AXIS, 1.1, -.1);
+	  ymin = rescale(FIRST_Y_AXIS, 1., 0.);
+	  x2min = rescale(SECOND_X_AXIS, 1.1, -.1);
+	  y2min = rescale(SECOND_Y_AXIS, 1., 0.);
+	  
+	  xmax = rescale(FIRST_X_AXIS, .1, .9);
+	  ymax = rescale(FIRST_Y_AXIS, 0., 1.);
+	  x2max = rescale(SECOND_X_AXIS, .1, .9);
+	  y2max = rescale(SECOND_Y_AXIS, 0., 1.);
+	  do_zoom(xmin, ymin, x2min, y2min, xmax, ymax, x2max, y2max);
+	  if (display_ipc_commands()) {
+	    fprintf(stderr, "scroll left.\n");
+	  }
+	} else {
+	  /* scroll up */
+	  xmin = rescale(FIRST_X_AXIS, 1., 0.);
+	  ymin = rescale(FIRST_Y_AXIS, .9,.1);
+	  x2min = rescale(SECOND_X_AXIS, 1.,0.);
+	  y2min = rescale(SECOND_Y_AXIS, .9, .1);
+
+	  xmax = rescale(FIRST_X_AXIS, 0., 1.);
+	  ymax = rescale(FIRST_Y_AXIS, -.1,1.1);
+	  x2max = rescale(SECOND_X_AXIS, 0., 1.);
+	  y2max = rescale(SECOND_Y_AXIS, -.1, 1.1);
+	  do_zoom(xmin, ymin, x2min, y2min, xmax, ymax, x2max, y2max);
+	  if (display_ipc_commands()) {
+	    fprintf(stderr, "scroll up.\n");
+	  }
+	}
+      }
+    } else if (5 == b &&			/* wheel down */
+	       (!replot_disabled || refresh_ok)	/* Use refresh if available */
+	       && !(paused_for_mouse & PAUSE_BUTTON3)) {
+      double xmin, ymin, x2min, y2min;
+      double xmax, ymax, x2max, y2max;
+      if (modifier_mask & Mod_Ctrl) {
+	if (modifier_mask & Mod_Shift) {
+	  /* zoom out (X axis only) */
+	  double w1= 23./21.;
+	  double w2=-2./21.;
+	  xmin = rescale(FIRST_X_AXIS, w1, w2);
+	  ymin = rescale(FIRST_Y_AXIS, 1., 0.);
+	  x2min = rescale(SECOND_X_AXIS, w1, w2);
+	  y2min = rescale(SECOND_Y_AXIS, 1., 0.);
+	  
+	  xmax = rescale(FIRST_X_AXIS, w2, w1);
+	  ymax = rescale(FIRST_Y_AXIS, 0., 1.);
+	  x2max = rescale(SECOND_X_AXIS, w2, w1);
+	  y2max = rescale(SECOND_Y_AXIS, 0., 1.);
+	  do_zoom(xmin, ymin, x2min, y2min, xmax, ymax, x2max, y2max);
+	  if (display_ipc_commands()) {
+	    fprintf(stderr, "zoom out X.\n");
+	  }
+	} else {
+	  /* zoom out (exactly undo a zoom in step) */
+	  double w1= 23./21.;
+	  double w2=-2./21.;
+	  xmin = rescale(FIRST_X_AXIS,  w1, w2);
+	  ymin = rescale(FIRST_Y_AXIS,  w1, w2);
+	  x2min = rescale(SECOND_X_AXIS, w1, w2);
+	  y2min = rescale(SECOND_Y_AXIS, w1, w2);
+
+	  xmax = rescale(FIRST_X_AXIS,  w2, w1);
+	  ymax = rescale(FIRST_Y_AXIS,  w2, w1);
+	  x2max = rescale(SECOND_X_AXIS, w2, w1);
+	  y2max = rescale(SECOND_Y_AXIS, w2, w1);
+	  do_zoom(xmin, ymin, x2min, y2min, xmax, ymax, x2max, y2max);
+	  if (display_ipc_commands()) {
+	    fprintf(stderr, "zoom out.\n");
+	  }
+	}
+      } else {
+	if (modifier_mask & Mod_Shift) {
+	  /* scroll right */
+	  xmin = rescale(FIRST_X_AXIS, .9, .1);
+	  ymin = rescale(FIRST_Y_AXIS, 1., 0.);
+	  x2min = rescale(SECOND_X_AXIS, .9, .1);
+	  y2min = rescale(SECOND_Y_AXIS, 1., 0.);
+
+	  xmax = rescale(FIRST_X_AXIS, -.1, 1.1);
+	  ymax = rescale(FIRST_Y_AXIS, 0., 1.);
+	  x2max = rescale(SECOND_X_AXIS, -.1, 1.1);
+	  y2max = rescale(SECOND_Y_AXIS, 0., 1.);
+	  do_zoom(xmin, ymin, x2min, y2min, xmax, ymax, x2max, y2max);
+	  if (display_ipc_commands()) {
+	    fprintf(stderr, "scroll right.\n");
+	  }
+	} else {
+	  /* scroll down */
+	  xmin = rescale(FIRST_X_AXIS, 1., 0.);
+	  ymin = rescale(FIRST_Y_AXIS, 1.1, -.1);
+	  x2min = rescale(SECOND_X_AXIS, 1., 0.);
+	  y2min = rescale(SECOND_Y_AXIS, 1.1, -.1);
+
+	  xmax = rescale(FIRST_X_AXIS, 0., 1.);
+	  ymax = rescale(FIRST_Y_AXIS, .1, .9);
+	  x2max = rescale(SECOND_X_AXIS, 0., 1.);
+	  y2max = rescale(SECOND_Y_AXIS, .1, .9);
+	  rescale(FIRST_Y_AXIS, 1.1,-.1);
+	  rescale(FIRST_Y_AXIS, .1,.9);
+	  do_zoom(xmin, ymin, x2min, y2min, xmax, ymax, x2max, y2max);
+	  if (display_ipc_commands()) {
+	    fprintf(stderr, "scroll down.\n");
+	  }
+	}
+      }
+    } else if (ALMOST2D) {
+        if (!setting_zoom_region) {
 	    if (1 == b) {
-		/* not bound in 2d graphs */
+	      /* not bound in 2d graphs */
 	    } else if (2 == b) {
 		/* not bound in 2d graphs */
 	    } else if (3 == b && 
@@ -1528,7 +1729,8 @@ event_buttonpress(struct gp_event_t *ge)
     start_x = mouse_x;
     start_y = mouse_y;
     zero_rot_z = surface_rot_z + 360.0 * mouse_x / term->xmax;
-    zero_rot_x = surface_rot_x - 180.0 * mouse_y / term->ymax;
+    /* zero_rot_x = surface_rot_x - 180.0 * mouse_y / term->ymax; */
+    zero_rot_x = surface_rot_x - 360.0 * mouse_y / term->ymax;
 }
 
 
@@ -1647,11 +1849,12 @@ event_motion(struct gp_event_t *ge)
 
 	if (button & (1 << 1)) {
 	    /* dragging with button 1 -> rotate */
-	    surface_rot_x = floor(0.5 + zero_rot_x + 180.0 * mouse_y / term->ymax);
+	  /*surface_rot_x = floor(0.5 + zero_rot_x + 180.0 * mouse_y / term->ymax);*/
+	    surface_rot_x = floor(0.5 + fmod(zero_rot_x + 360.0 * mouse_y / term->ymax, 360));
 	    if (surface_rot_x < 0)
-		surface_rot_x = 0;
-	    if (surface_rot_x > 180)
-		surface_rot_x = 180;
+		surface_rot_x += 360;
+	    if (surface_rot_x > 360)
+		surface_rot_x -= 360;
 	    surface_rot_z = floor(0.5 + fmod(zero_rot_z - 360.0 * mouse_x / term->xmax, 360));
 	    if (surface_rot_z < 0)
 		surface_rot_z += 360;
@@ -1676,7 +1879,8 @@ event_motion(struct gp_event_t *ge)
 	    } else {
 
 		if (relx > rely) {
-		    surface_scale += (mouse_x - start_x) * 2.0 / term->xmax;
+		    surface_lscale += (mouse_x - start_x) * 2.0 / term->xmax;
+		    surface_scale = exp(surface_lscale);
 		    if (surface_scale < 0)
 			surface_scale = 0;
 		} else {
@@ -1851,7 +2055,7 @@ do_event(struct gp_event_t *ge)
 	break;
     case GE_replot:
 	/* used only by ggi.trm */
-	do_string("replot", FALSE);
+	do_string("replot");
 	break;
     case GE_reset:
 	event_reset(ge);
@@ -2085,6 +2289,7 @@ bind_display(char *lhs)
 	/* display all bindings */
 	char fmt[] = " %-17s  %s\n";
 	fprintf(stderr, "\n");
+	/* mouse buttons */
 	fprintf(stderr, fmt, "2x<B1>",
 		"print coordinates to clipboard using `clipboardformat`\n                    (see keys '3', '4')");
 	fprintf(stderr, fmt, "<B2>", "annotate the graph using `mouseformat` (see keys '1', '2')");
@@ -2094,7 +2299,18 @@ bind_display(char *lhs)
 	fprintf(stderr, fmt, "<B1-Motion>", "change view (rotation). Use <ctrl> to rotate the axes only.");
 	fprintf(stderr, fmt, "<B2-Motion>", "change view (scaling). Use <ctrl> to scale the axes only.");
 	fprintf(stderr, fmt, "<Shift-B2-Motion>", "vertical motion -- change xyplane");
+	/* mouse wheel */
+	fprintf(stderr, fmt, "<wheel-up>", "scroll up (in +Y direction).");
+	fprintf(stderr, fmt, "<wheel-down>", "scroll down.");
+	fprintf(stderr, fmt, "<shift-wheel-up>", "scroll left (in -X direction).");
+	fprintf(stderr, fmt, "<shift-wheel-down>", "scroll right.");
+	fprintf(stderr, fmt, "<control-wheel-up>", "zoom in toward the center of the plot.");
+	fprintf(stderr, fmt, "<control-wheel-down>", " zoom out.");
+	fprintf(stderr, fmt, "<shift-control-wheel-up>", "zoom in only the X axis.");
+	fprintf(stderr, fmt, "<shift-control-wheel-down>", "zoom out only the X axis.");
+
 	fprintf(stderr, "\n");
+	/* keystrokes */
 #ifndef DISABLE_SPACE_RAISES_CONSOLE
 	fprintf(stderr, " %-12s   %s\n", "Space", "raise gnuplot console window");
 #endif

@@ -1,5 +1,5 @@
 /*
- * $Id: gp_cairo.c,v 1.48 2009/03/26 00:49:17 sfeam Exp $
+ * $Id: gp_cairo.c,v 1.53 2011/01/19 03:15:00 sfeam Exp $
  */
 
 /* GNUPLOT - gp_cairo.c */
@@ -221,6 +221,7 @@ void gp_cairo_initialize_context(plot_struct *plot)
 	} else {
 	    cairo_set_line_cap  (plot->cr, CAIRO_LINE_CAP_SQUARE);
 	    cairo_set_line_join (plot->cr, CAIRO_LINE_JOIN_MITER);
+	    cairo_set_miter_limit(plot->cr, 3.8);
 	}
 
 }
@@ -284,7 +285,7 @@ void gp_cairo_set_font(plot_struct *plot, const char *name, int fontsize)
     char *c;
     char *fname;
 
-	FPRINTF((stderr,"set_font\n"));
+	FPRINTF(("set_font \"%s\" %d\n", name,fontsize));
 
 	/* Split out Bold and Italic attributes from font name */
 	fname = strdup(name);
@@ -674,7 +675,7 @@ gchar * gp_cairo_convert(plot_struct *plot, const char* string)
 		if (error != NULL) {
 			fprintf(stderr, "Unable to convert \"%s\": the sequence is invalid "\
 				"in the current charset (%s), %d bytes read out of %d\n",
-				string, charset, bytes_read, strlen(string));
+				string, charset, (int)bytes_read, (int)strlen(string));
 			string_utf8 = g_convert(string, bytes_read, "UTF-8", charset, NULL, NULL, NULL);
 			g_error_free (error);
 		} else
@@ -686,6 +687,45 @@ gchar * gp_cairo_convert(plot_struct *plot, const char* string)
 	return string_utf8;
 }
 
+/*
+ * The following #ifdef WIN32 section is all to work around a bug in
+ * the cairo/win32 backend for font rendering.  It has the effect of
+ * testing for libfreetype support, and using that instead if possible.
+ * Suggested by cairo developer Behdad Esfahbod. 
+ */
+#ifdef WIN32
+PangoLayout *
+gp_cairo_create_layout (cairo_t *cr)
+{
+    static PangoFontMap *fontmap;
+    PangoContext *context;
+    PangoLayout *layout;
+
+    if (fontmap == NULL) {   
+        fontmap = pango_cairo_font_map_new_for_font_type(CAIRO_FONT_TYPE_FT);
+        if (fontmap == NULL) {
+	    fontmap = pango_cairo_font_map_get_default();
+        }
+    }
+
+#if PANGO_VERSION_MAJOR > 1 || PANGO_VERSION_MINOR >= 22
+    context = pango_font_map_create_context(fontmap);
+#else
+    context = pango_cairo_font_map_create_context((PangoCairoFontMap *) fontmap);
+#endif
+
+    layout = pango_layout_new(context);
+    g_object_unref(context);
+
+    return layout;
+}
+#else
+PangoLayout *
+gp_cairo_create_layout (cairo_t *cr)
+{
+    return pango_cairo_create_layout(cr);
+}
+#endif
 
 void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string)
 {
@@ -724,7 +764,7 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string)
 	}
 
 	/* Create a PangoLayout, set the font and text */
-	layout = pango_cairo_create_layout (plot->cr);
+	layout = gp_cairo_create_layout (plot->cr);
 	
 	pango_layout_set_text (layout, string_utf8, -1);
 	g_free(string_utf8);
@@ -743,7 +783,7 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string)
 		plot->fontstyle ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
 	pango_layout_set_font_description (layout, desc);
 	pango_font_description_free (desc);
-
+	
 	pango_layout_get_extents(layout, &ink_rect, &logical_rect);
 
 	/* EAM Mar 2009 - Adjusting the vertical position for every character fragment */
@@ -1026,7 +1066,7 @@ void gp_cairo_draw_image(plot_struct *plot, unsigned int * image, int x1, int y1
 	scale_x = (double)M/fabs( x2 - x1 );
 	scale_y = (double)N/fabs( y2 - y1 );
 
-	FPRINTF((stderr,"M %d N %lf x1 %d y1 %d\n", M, N, x1, y1));
+	FPRINTF((stderr,"M %d N %d x1 %d y1 %d\n", M, N, x1, y1));
 	cairo_save( plot->cr );
 
 	/* Set clipping boundaries for image copy.
@@ -1178,7 +1218,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 
 		/* Create a PangoLayout, set the font and text
 		 * with the saved attributes list, get extents */
-		save_layout = pango_cairo_create_layout (plot->cr);
+		save_layout = gp_cairo_create_layout (plot->cr);
 		pango_layout_set_text (save_layout, gp_cairo_save_utf8, -1);
 		pango_layout_set_attributes (save_layout, gp_cairo_enhanced_save_AttrList);
 		pango_layout_get_extents(save_layout, NULL, &save_logical_rect);
@@ -1201,17 +1241,20 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 
 		/* Create a PangoLayout, set the font and text with
 		 * the saved attributes list, get extents */
-		underprinted_layout = pango_cairo_create_layout (plot->cr);
+		underprinted_layout = gp_cairo_create_layout (plot->cr);
 		pango_layout_set_text (underprinted_layout, gp_cairo_underprinted_utf8, -1);
-		pango_layout_set_attributes (underprinted_layout, gp_cairo_enhanced_underprinted_AttrList);
+		// EAM DEBUG
+		if (!gp_cairo_enhanced_underprinted_AttrList)
+			fprintf(stderr,"uninitialized gp_cairo_enhanced_underprinted_AttrList!\n");
+		else
+			pango_layout_set_attributes (underprinted_layout, gp_cairo_enhanced_underprinted_AttrList);
 		pango_layout_get_extents(underprinted_layout, NULL, &underprinted_logical_rect);
 		g_object_unref (underprinted_layout);
-		pango_attr_list_unref( gp_cairo_enhanced_underprinted_AttrList );
 
 		/* compute the size of the text to overprint*/
 
 		/* Create a PangoLayout, set the font and text */
-		current_layout = pango_cairo_create_layout (plot->cr);
+		current_layout = gp_cairo_create_layout (plot->cr);
 		pango_layout_set_text (current_layout, enhanced_text_utf8, -1);
 		current_desc = pango_font_description_new ();
 		pango_font_description_set_family (current_desc, gp_cairo_enhanced_get_fontname(plot));
@@ -1249,7 +1292,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		/* position must be modified, but text not actually drawn */
 		/* the idea is to use a blank character, drawn with the width of the text*/
 
-		current_layout = pango_cairo_create_layout (plot->cr);
+		current_layout = gp_cairo_create_layout (plot->cr);
 		pango_layout_set_text (current_layout, gp_cairo_utf8, -1);
 		pango_layout_set_attributes (current_layout, gp_cairo_enhanced_AttrList);
 		pango_layout_get_extents(current_layout, &current_ink_rect, &current_logical_rect);
@@ -1257,7 +1300,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 
 		/* we first compute the size of the text */
 		/* Create a PangoLayout, set the font and text */
-		hide_layout = pango_cairo_create_layout (plot->cr);
+		hide_layout = gp_cairo_create_layout (plot->cr);
 		pango_layout_set_text (hide_layout, enhanced_text_utf8, -1);
 		hide_desc = pango_font_description_new ();
 		pango_font_description_set_family (hide_desc, gp_cairo_enhanced_get_fontname(plot));
@@ -1288,7 +1331,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		/* we first compute the size of the text */
 	
 		/* Create a PangoLayout, set the font and text */
-		zerowidth_layout = pango_cairo_create_layout (plot->cr);
+		zerowidth_layout = gp_cairo_create_layout (plot->cr);
 		pango_layout_set_text (zerowidth_layout, enhanced_text_utf8, -1);
 		zerowidth_desc = pango_font_description_new ();
 		pango_font_description_set_family (zerowidth_desc, gp_cairo_enhanced_get_fontname(plot));
@@ -1334,6 +1377,8 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 			sizeof(gp_cairo_underprinted_utf8)-strlen(gp_cairo_underprinted_utf8));
 		underprinted_end = strlen(gp_cairo_underprinted_utf8);
 
+		if (gp_cairo_enhanced_underprinted_AttrList)
+			pango_attr_list_unref( gp_cairo_enhanced_underprinted_AttrList );
 		gp_cairo_enhanced_underprinted_AttrList = pango_attr_list_new();
 
 		/* add text attributes to the underprinted list */
@@ -1420,7 +1465,7 @@ void gp_cairo_enhanced_finish(plot_struct *plot, int x, int y)
 	double vert_just, arg, enh_x, enh_y, delta, deltax, deltay;
 
 	/* Create a PangoLayout, set the font and text */
-	layout = pango_cairo_create_layout (plot->cr);
+	layout = gp_cairo_create_layout (plot->cr);
 
 	pango_layout_set_text (layout, gp_cairo_utf8, -1);
 
@@ -1635,7 +1680,7 @@ void gp_cairo_set_termvar(plot_struct *plot, unsigned int *v_char,
 	unsigned int tmp_v_char, tmp_h_char;
 
 	/* Create a PangoLayout, set the font and text */
-	layout = pango_cairo_create_layout (plot->cr);
+	layout = gp_cairo_create_layout (plot->cr);
 	pango_layout_set_text (layout, "0123456789", -1);
 	desc = pango_font_description_new ();
 	pango_font_description_set_family (desc, plot->fontname);

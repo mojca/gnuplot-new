@@ -1,5 +1,5 @@
 /*
- * $Id: graphics.h,v 1.47 2009/03/26 00:49:16 sfeam Exp $
+ * $Id: graphics.h,v 1.51 2011/02/10 21:29:51 sfeam Exp $
  */
 
 /* GNUPLOT - graphics.h */
@@ -62,8 +62,8 @@ typedef struct curve_points {
     struct t_image image_properties;	/* only used if plot_style is IMAGE or RGB_IMAGE */
 
     /* 2D and 3D plot structure fields overlay only to this point */
-
     filledcurves_opts filledcurves_options;
+    int ellipseaxes_units;              /* Only used if plot_style == ELLIPSES */    
     struct histogram_style *histogram;	/* Only used if plot_style == HISTOGRAM */
     int histogram_sequence;	/* Ordering of this dataset within the histogram */
     enum PLOT_SMOOTH plot_smooth; /* which "smooth" method to be used? */
@@ -72,6 +72,7 @@ typedef struct curve_points {
     int x_axis;			/* FIRST_X_AXIS or SECOND_X_AXIS */
     int y_axis;			/* FIRST_Y_AXIS or SECOND_Y_AXIS */
     int z_axis;			/* same as either x_axis or y_axis, for 5-column plot types */
+    double *varcolor;		/* Only used if plot has variable color */
     struct coordinate GPHUGE *points;
 } curve_points;
 
@@ -91,7 +92,7 @@ int label_width __PROTO((const char *, int *));
 void map_position __PROTO((struct position * pos, int *x, int *y, const char *what));
 void map_position_r __PROTO((struct position* pos, double* x, double* y,
 			     const char* what));
-#if defined(sun386) || defined(AMIGA_SC_6_1)
+#if defined(sun386)
 double CheckLog __PROTO((TBOOLEAN, double, double));
 #endif
 void apply_head_properties __PROTO((struct arrow_style_type *arrow_properties));
@@ -103,10 +104,12 @@ void plot_image_or_update_axes __PROTO((void *plot, TBOOLEAN update_axes));
 
 #ifdef EAM_OBJECTS
 void place_objects __PROTO((struct object *listhead, int layer, int dimensions, BoundingBox *clip_area));
-void do_ellipse __PROTO((int dimensions, t_ellipse *e, int style ));
+void do_ellipse __PROTO((int dimensions, t_ellipse *e, int style, TBOOLEAN do_own_mapping ));
 void do_polygon __PROTO((int dimensions, t_polygon *p, int style ));
 #else
 #define place_objects(listhead,layer,dimensions,clip_area) /* void() */
 #endif
+
+int filter_boxplot __PROTO((struct curve_points *));
 
 #endif /* GNUPLOT_GRAPHICS_H */

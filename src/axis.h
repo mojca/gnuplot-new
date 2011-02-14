@@ -1,5 +1,5 @@
 /*
- * $Id: axis.h,v 1.56 2009/01/31 17:21:32 vanzandt Exp $
+ * $Id: axis.h,v 1.63 2011/01/16 19:15:20 sfeam Exp $
  *
  */
 
@@ -59,19 +59,20 @@ typedef enum AXIS_INDEX {
     FIRST_Z_AXIS,
     FIRST_Y_AXIS,
     FIRST_X_AXIS,
-    T_AXIS,			/* fill gap */
+    COLOR_AXIS,			/* fill gap */
 #define SECOND_AXES 4
     SECOND_Z_AXIS,		/* not used, yet */
     SECOND_Y_AXIS,
     SECOND_X_AXIS,
-    R_AXIS,			/* never used ? */
-    U_AXIS,			/* ditto */
+    POLAR_AXIS,
+    T_AXIS,
+    U_AXIS,			/* never used? */
     V_AXIS			/* ditto */
-    ,COLOR_AXIS
 #define NO_AXIS 99
 } AXIS_INDEX;
 
 # define AXIS_ARRAY_SIZE 11
+# define LAST_REAL_AXIS  POLAR_AXIS
 
 /* What kind of ticmarking is wanted? */
 typedef enum en_ticseries_type {
@@ -126,7 +127,8 @@ enum en_minitics_status {
 
 /* Function pointer type for callback functions doing operations for a
  * single ticmark */
-typedef void (*tic_callback) __PROTO((AXIS_INDEX, double, char *, struct lp_style_type ));
+typedef void (*tic_callback) __PROTO((AXIS_INDEX, double, char *, struct lp_style_type,
+					struct ticmark *));
 
 /* Values to put in the axis_tics[] variables that decides where the
  * ticmarks should be drawn: not at all, on one or both plot borders,
@@ -174,6 +176,13 @@ typedef enum e_autoscale {
     AUTOSCALE_FIXMAX = 1<<3
 } t_autoscale;
 
+typedef enum e_constraint {
+    CONSTRAINT_NONE  = 0,
+    CONSTRAINT_LOWER = 1<<0,
+    CONSTRAINT_UPPER = 1<<1,
+    CONSTRAINT_BOTH  = (1<<0 | 1<<1)
+} t_constraint;
+    
 
 /* FIXME 20000725: collect some of those various TBOOLEAN fields into
  * a larger int (or -- shudder -- a bitfield?) */
@@ -196,6 +205,12 @@ typedef struct axis {
     double data_min;		/* Not necessarily the same as axis min */
     double data_max;
 
+/* range constraints */
+    t_constraint min_constraint;
+    t_constraint max_constraint;
+    double min_lb, min_ub;     /* min lower- and upper-bound */
+    double max_lb, max_ub;     /* min lower- and upper-bound */
+    
 /* output-related quantities */
     int term_lower;		/* low and high end of the axis on output, */
     int term_upper;		/* ... (in terminal coordinates)*/
@@ -241,6 +256,8 @@ typedef struct axis {
 	-10.0, 10.0,							    \
 	-10.0, 10.0,							    \
 	  0.0,  0.0,		/* and another min/max for the data */	    \
+	CONSTRAINT_NONE, CONSTRAINT_NONE,  /* min and max constraints */    \
+	0, 0, 0, 0,             /* lower and upper bound for min and max */ \
 	0, 0, 0, 0,		/* terminal dependents */		    \
 	FALSE, 0.0, 0.0,	/* log, base, log(base) */		    \
 	0, 1,			/* is_timedata, format_numeric */	    \
@@ -295,6 +312,9 @@ extern const struct lp_style_type default_grid_lp;
 /* grid layer: -1 default, 0 back, 1 front */
 extern int grid_layer;
 
+/* Whether or not to draw a separate polar axis in polar mode */
+extern TBOOLEAN raxis;
+
 /* global variables for communication with the tic callback functions */
 /* FIXME HBB 20010806: had better be collected into a struct that's
  * passed to the callback */
@@ -317,6 +337,7 @@ extern AXIS_INDEX x_axis, y_axis, z_axis;
 #define X_AXIS axis_array[x_axis]
 #define Y_AXIS axis_array[y_axis]
 #define Z_AXIS axis_array[z_axis]
+#define R_AXIS axis_array[POLAR_AXIS]
 #define CB_AXIS axis_array[COLOR_AXIS]
 
 /* -------- macros using these variables: */
@@ -404,7 +425,6 @@ do {									\
 	? VERYLARGE : this->set_min;					\
     this->max = (infinite && (this->set_autoscale & AUTOSCALE_MAX))	\
 	? -VERYLARGE : this->set_max;					\
-    this->log_base = this->log ? log(this->base) : 0;			\
     this->data_min = VERYLARGE;						\
     this->data_max = -VERYLARGE;					\
 } while(0)
@@ -523,12 +543,13 @@ do {									\
     if (((axes) >= 0) && (axis_array[(axes)+(axis)].is_timedata)	\
 	&& isstringvalue(c_token)) {					\
 	struct tm tm;							\
+	double usec;							\
 	char *ss = try_to_get_string();					\
-	if (gstrptime(ss,axis_array[axis].timefmt,&tm))			\
-	    (store) = (double) gtimegm(&tm);				\
+	if (gstrptime(ss,axis_array[axis].timefmt,&tm,&usec))		\
+	    (store) = (double) gtimegm(&tm) + usec;			\
 	free(ss);							\
     } else {								\
-	(store) = real_expression();						\
+	(store) = real_expression();					\
     }									\
 } while(0)
 
@@ -585,9 +606,20 @@ do {									  \
     if ( VALUE<axis_array[AXIS].data_min )				  \
 	axis_array[AXIS].data_min = VALUE;				  \
     if ( VALUE<axis_array[AXIS].min ) {					  \
-	if (axis_array[AXIS].autoscale & AUTOSCALE_MIN)			  \
-	    axis_array[AXIS].min = VALUE;				  \
-	else {								  \
+	if (axis_array[AXIS].autoscale & AUTOSCALE_MIN)	{		  \
+            if (axis_array[AXIS].min_constraint & CONSTRAINT_LOWER) {     \
+                if (axis_array[AXIS].min_lb <= VALUE) {                   \
+                    axis_array[AXIS].min = VALUE;                         \
+                } else {                                                  \
+                    axis_array[AXIS].min = axis_array[AXIS].min_lb;       \
+                    TYPE = OUTRANGE;                                       \
+                    OUT_ACTION;                                           \
+                    break;                                                \
+                }                                                         \
+            } else {                                                      \
+	        axis_array[AXIS].min = VALUE;				  \
+	    }								  \
+	} else {							  \
 	    TYPE = OUTRANGE;						  \
 	    OUT_ACTION;							  \
 	    break;							  \
@@ -596,9 +628,20 @@ do {									  \
     if ( VALUE>axis_array[AXIS].data_max )				  \
 	axis_array[AXIS].data_max = VALUE;				  \
     if ( VALUE>axis_array[AXIS].max ) {					  \
-	if (axis_array[AXIS].autoscale & AUTOSCALE_MAX)			  \
-	    axis_array[AXIS].max = VALUE;				  \
-	else {								  \
+	if (axis_array[AXIS].autoscale & AUTOSCALE_MAX)	{		  \
+	    if (axis_array[AXIS].max_constraint & CONSTRAINT_UPPER) {     \
+                if (axis_array[AXIS].max_ub >= VALUE) {                   \
+                    axis_array[AXIS].max = VALUE;                         \
+                } else {                                                  \
+                    axis_array[AXIS].max = axis_array[AXIS].max_ub;       \
+                    TYPE =OUTRANGE;                                       \
+                    OUT_ACTION;                                           \
+                    break;                                                \
+                }                                                         \
+            } else {                                                      \
+	        axis_array[AXIS].max = VALUE;                             \
+            }                                                     	  \
+	} else {							  \
 	    TYPE = OUTRANGE;						  \
 	    OUT_ACTION;							  \
 	}								  \
@@ -621,15 +664,6 @@ do {									  \
 /* #define NOOP (0) caused many warnings from gcc 3.2 */
 /* Now trying ((void)0) */
 #define NOOP ((void)0)
-
-/* HBB 20000506: new macro, initializes one variable to the same
- * value, for all axes. */
-#define INIT_AXIS_ARRAY(field, value)		\
-do {						\
-    int tmp;					\
-    for (tmp=0; tmp<AXIS_ARRAY_SIZE; tmp++)	\
-	axis_array[tmp].field=(value);		\
-} while(0)
 
 /* HBB 20000506: new macro to automatically build intializer lists
  * for arrays of AXIS_ARRAY_SIZE equal elements */
@@ -674,7 +708,8 @@ void set_writeback_min __PROTO((AXIS_INDEX));
 void set_writeback_max __PROTO((AXIS_INDEX));
 
 /* set widest_tic_label: length of the longest tics label */
-void widest_tic_callback __PROTO((AXIS_INDEX, double place, char *text, struct lp_style_type grid));
+void widest_tic_callback __PROTO((AXIS_INDEX, double place, char *text, 
+			struct lp_style_type grid, struct ticmark *));
 
 void get_position __PROTO((struct position *pos));
 void get_position_default __PROTO((struct position *pos, enum position_type default_type));

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: axis.c,v 1.79 2009/06/06 06:18:20 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: axis.c,v 1.88 2010/12/04 05:05:52 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - axis.c */
@@ -64,14 +64,14 @@ const AXIS_DEFAULTS axis_defaults[AXIS_ARRAY_SIZE] = {
     { -10, 10, "z" , TICS_ON_BORDER,               },
     { -10, 10, "y" , TICS_ON_BORDER | TICS_MIRROR, },
     { -10, 10, "x" , TICS_ON_BORDER | TICS_MIRROR, },
-    { - 5,  5, "t" , NO_TICS,                      },
+    { -10, 10, "cb", TICS_ON_BORDER | TICS_MIRROR, },
     { -10, 10, "z2", NO_TICS,                      },
     { -10, 10, "y2", NO_TICS,                      },
     { -10, 10, "x2", NO_TICS,                      },
-    { - 0, 10, "r" , NO_TICS,                      },
+    { - 0, 10, "r" , TICS_ON_AXIS,                 },
+    { - 5,  5, "t" , NO_TICS,                      },
     { - 5,  5, "u" , NO_TICS,                      },
     { - 5,  5, "v" , NO_TICS,                      },
-    { -10, 10, "cb", TICS_ON_BORDER | TICS_MIRROR, },
 };
 
 
@@ -101,14 +101,14 @@ const struct gen_table axisname_tbl[AXIS_ARRAY_SIZE + 1] =
     { "z", FIRST_Z_AXIS},
     { "y", FIRST_Y_AXIS},
     { "x", FIRST_X_AXIS},
-    { "t", T_AXIS},
+    { "cb",COLOR_AXIS},
     { "z2",SECOND_Z_AXIS},
     { "y2",SECOND_Y_AXIS},
     { "x2",SECOND_X_AXIS},
-    { "r", R_AXIS},
+    { "r", POLAR_AXIS},
+    { "t", T_AXIS},
     { "u", U_AXIS},
     { "v", V_AXIS},
-    { "cb", COLOR_AXIS},
     { NULL, -1}
 };
 
@@ -121,6 +121,11 @@ const struct gen_table axisname_tbl[AXIS_ARRAY_SIZE + 1] =
 /* HBB 20000416: for the testing, these are global... */
 /* static */ int tic_start, tic_direction, tic_text,
     rotate_tics, tic_hjust, tic_vjust, tic_mirror;
+
+/* These are declare volatile in order to fool the compiler into not */
+/* optimizing out intermediate values, thus hiding loss of precision.*/
+volatile double vol_this_tic;
+volatile double vol_previous_tic;
 
 const struct ticdef default_axis_ticdef = DEFAULT_AXIS_TICDEF;
 
@@ -138,6 +143,7 @@ struct lp_style_type grid_lp   = DEFAULT_GRID_LP;
 struct lp_style_type mgrid_lp  = DEFAULT_GRID_LP;
 int grid_layer = -1;
 double polar_grid_angle = 0;	/* nonzero means a polar grid */
+TBOOLEAN raxis = TRUE;
 
 /* Length of the longest tics label, set by widest_tic_callback(): */
 int widest_tic_strlen;
@@ -150,7 +156,6 @@ AXIS_INDEX y_axis = FIRST_Y_AXIS;
 AXIS_INDEX z_axis = FIRST_Z_AXIS;
 
 /* --------- internal prototypes ------------------------- */
-static double dbl_raise __PROTO((double x, int y));
 static double make_auto_time_minitics __PROTO((t_timelevel, double));
 static double make_tics __PROTO((AXIS_INDEX, int));
 static double quantize_time_tics __PROTO((AXIS_INDEX, double, double, int));
@@ -159,7 +164,6 @@ static double round_outward __PROTO((AXIS_INDEX, TBOOLEAN, double));
 static TBOOLEAN axis_position_zeroaxis __PROTO((AXIS_INDEX));
 static double quantize_duodecimal_tics __PROTO((double, int));
 static void get_position_type __PROTO((enum position_type * type, int *axes));
-
 
 /* ---------------------- routines ----------------------- */
 
@@ -314,7 +318,7 @@ axis_checked_extend_empty_range(AXIS_INDEX axis, const char *mesg)
 	    /* range came from autoscaling ==> widen it */
 	    double widen = (dmax == 0.0) ?
 		FIXUP_RANGE__WIDEN_ZERO_ABS
-		: FIXUP_RANGE__WIDEN_NONZERO_REL * dmax;
+		: FIXUP_RANGE__WIDEN_NONZERO_REL * fabs(dmax);
 	    if (!(axis == FIRST_Z_AXIS && !mesg)) /* set view map */
 		fprintf(stderr, "Warning: empty %s range [%g:%g], ",
 		    axis_defaults[axis].name, dmin, dmax);
@@ -515,24 +519,6 @@ copy_or_invent_formatstring(AXIS_INDEX axis)
 
 /* }}} */
 
-/* {{{ dbl_raise() used by quantize_normal_tics */
-/* FIXME HBB 20000426: is this really useful? */
-static double
-dbl_raise(double x, int y)
-{
-    int i = abs(y);
-    double val = 1.0;
-
-    while (--i >= 0)
-	val *= x;
-
-    if (y < 0)
-	return (1.0 / val);
-    return (val);
-}
-
-/* }}} */
-
 /* {{{ quantize_normal_tics() */
 /* the guide parameter was intended to allow the number of tics
  * to depend on the relative sizes of the plot and the font.
@@ -550,7 +536,7 @@ double
 quantize_normal_tics(double arg, int guide)
 {
     /* order of magnitude of argument: */
-    double power = dbl_raise(10.0, floor(log10(arg)));
+    double power = pow(10.0, floor(log10(arg)));
     double xnorm = arg / power;	/* approx number of decades */
     /* we expect 1 <= xnorm <= 10 */
     double posns = guide / xnorm; /* approx number of tic posns per decade */
@@ -627,7 +613,7 @@ static double
 quantize_duodecimal_tics(double arg, int guide)
 {
     /* order of magnitude of argument: */
-    double power = dbl_raise(12.0, floor(log(arg)/log(12.0)));
+    double power = pow(12.0, floor(log(arg)/log(12.0)));
     double xnorm = arg / power;	/* approx number of decades */
     double posns = guide / xnorm; /* approx number of tic posns per decade */
 
@@ -774,6 +760,22 @@ setup_tics(AXIS_INDEX axis, int max)
     TBOOLEAN autoextend_max = (this->autoscale & AUTOSCALE_MAX)
 	&& ! (this->autoscale & AUTOSCALE_FIXMAX);
 
+    /*  Apply constraints on autoscaled axis if requested:
+     *  The range is _expanded_ here only.  Limiting the range is done
+     *  in the macro STORE_WITH_LOG_AND_UPDATE_RANGE() of axis.h  */
+    if (this->autoscale & AUTOSCALE_MIN) {
+      	if (this->min_constraint & CONSTRAINT_UPPER) {
+	    if (this->min > this->min_ub)
+		this->min = this->min_ub;
+	}
+    }
+    if (this->autoscale & AUTOSCALE_MAX) {
+	if (this->max_constraint & CONSTRAINT_LOWER) {
+	    if (this->max < this->max_lb)
+		this->max = this->max_lb;
+	}
+    }
+
     /* HBB 20000506: if no tics required for this axis, do
      * nothing. This used to be done exactly before each call of
      * setup_tics, anyway... */
@@ -807,11 +809,17 @@ setup_tics(AXIS_INDEX axis, int max)
 	else                           timelevel[axis] = TIMELEVEL_SECONDS;
     }
 
-    if (autoextend_min)
+    if (autoextend_min) {
 	this->min = round_outward(axis, ! (this->min < this->max), this->min);
+	if (this->min_constraint & CONSTRAINT_LOWER && this->min < this->min_lb)
+	    this->min = this->min_lb;
+    }
 
-    if (autoextend_max)
+    if (autoextend_max) {
 	this->max = round_outward(axis, this->min < this->max, this->max);
+	if (this->max_constraint & CONSTRAINT_UPPER && this->max > this->max_ub)
+	    this->max = this->max_ub;
+    }
 
 
     /* Set up ticfmt[axis] correctly. If necessary (time axis, but not
@@ -831,18 +839,13 @@ setup_tics(AXIS_INDEX axis, int max)
 void
 gen_tics(AXIS_INDEX axis, tic_callback callback)
 {
-    /* separate main-tic part of grid */
-    struct lp_style_type lgrd, mgrd;
-    /* tic defn */
     struct ticdef *def = &axis_array[axis].ticdef;
-    /* minitics - off/default/auto/explicit */
-    int minitics = axis_array[axis].minitics;
-    /* minitic frequency */
-    double minifreq = axis_array[axis].mtic_freq;
+    int minitics = axis_array[axis].minitics; /* off/default/auto/explicit */
+    double minifreq = axis_array[axis].mtic_freq; /* minitic frequency */
 
+    struct lp_style_type lgrd = grid_lp;
+    struct lp_style_type mgrd = mgrid_lp;
 
-    memcpy(&lgrd, &grid_lp, sizeof(grid_lp));
-    memcpy(&mgrd, &mgrid_lp, sizeof(mgrid_lp));
     if (! axis_array[axis].gridmajor)
 	lgrd.l_type = LT_NODRAW;
     if (! axis_array[axis].gridminor)
@@ -855,22 +858,28 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	double internal_min = axis_array[axis].min - SIGNIF * uncertain;
 	double internal_max = axis_array[axis].max + SIGNIF * uncertain;
 	double log10_base = axis_array[axis].log ? log10(axis_array[axis].base) : 1.0;
+	double polar_shift = 0;
 
 	/* polar labels always +ve, and if rmin has been set, they are
-	 * relative to rmin. position is as user specified, but must
-	 * be translated. I dont think it will work at all for
-	 * log scale, so I shan't worry about it !
+	 * relative to rmin.
 	 */
-	double polar_shift =
-	    (polar
-	     && ! (axis_array[R_AXIS].autoscale & AUTOSCALE_MIN))
-	    ? axis_array[R_AXIS].min : 0;
+	if (polar) {
+	    if (!(R_AXIS.autoscale & AUTOSCALE_MIN))
+		polar_shift = R_AXIS.min;
+	    internal_min = X_AXIS.min - SIGNIF * uncertain;
+	    internal_max = X_AXIS.max + SIGNIF * uncertain;
+	}
 
 	for (mark = def->def.user; mark; mark = mark->next) {
 	    char label[64];
-	    double internal = AXIS_LOG_VALUE(axis,mark->position);
+	    double internal;
 
-	    internal -= polar_shift;
+	    /* This condition is only possible if we are in polar mode */
+	    if (axis == POLAR_AXIS)
+		internal = AXIS_LOG_VALUE(POLAR_AXIS,mark->position)
+			 - AXIS_LOG_VALUE(POLAR_AXIS,polar_shift);
+	    else
+		internal = AXIS_LOG_VALUE(axis,mark->position) - polar_shift;
 
 	    if (!inrange(internal, internal_min, internal_max))
 		continue;
@@ -881,8 +890,22 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 		gstrftime(label, 24, mark->label ? mark->label : ticfmt[axis], mark->position);
 	    else
 		gprintf(label, sizeof(label), mark->label ? mark->label : ticfmt[axis], log10_base, mark->position);
+
 	    /* use NULL instead of label for minitic */
-	    (*callback) (axis, internal, (mark->level>0)?NULL:label, (mark->level>0)?mgrd:lgrd);
+	    (*callback) (axis, internal,
+	    		(mark->level>0)?NULL:label,
+	    		(mark->level>0)?mgrd:lgrd, NULL);
+
+	    /* Polar axis tics are mirrored across the origin */
+	    if (axis == POLAR_AXIS && (R_AXIS.ticmode & TICS_MIRROR)) {
+		int save_gridline = lgrd.l_type;
+		lgrd.l_type = LT_NODRAW;
+		(*callback) (axis, -internal,
+			(mark->level>0)?NULL:label,
+	    		(mark->level>0)?mgrd:lgrd, NULL);
+		lgrd.l_type = save_gridline;
+	    }
+
 	}
 	if (def->type == TIC_USER)
 	    return;
@@ -921,7 +944,7 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	/* {{{  choose start, step and end */
 	switch (def->type) {
 	case TIC_SERIES:
-	    if (axis_array[axis].log) {
+	    if (axis_array[axis].log && axis != POLAR_AXIS) {
 		/* we can tolerate start <= 0 if step and end > 0 */
 		if (def->def.series.end <= 0 || def->def.series.incr <= 0)
 		    return;	/* just quietly ignore */
@@ -1065,29 +1088,27 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	/* This protects against infinite loops if the separation between   */
 	/* two ticks is less than the precision of the control variables.   */
 	/* The for(...) loop here must be identical to the true loop below. */
+	/* Furthermore, compiler optimization can muck up this test, so we  */
+	/* tell the compiler that the control variables are volatile.       */
 	if (1) /* (some-test-for-range-and-or-step-size) */ {
-	    int anyticput = 0;
-	    double previous_tic = 0;
-
-	    for (tic = start; tic <= end; tic += step) {
-		/* EAM Oct 2008: Previous code (2001) checked only the start and end
-		 * points, but rounding error can strike at any point in the range.
-		 */
-		if (anyticput == 0)
-		    anyticput = 1;
-		else if (fabs(tic - previous_tic) < (step/4.)) {
+	    vol_previous_tic = start-step;
+	    for (vol_this_tic = start; vol_this_tic <= end; vol_this_tic += step) {
+		if (fabs(vol_this_tic - vol_previous_tic) < (step/4.)) {
 		    step = end - start;
 		    int_warn(NO_CARET, "tick interval too small for machine precision");
 		    break;
 		}
-		previous_tic = tic;
+		vol_previous_tic = vol_this_tic;
 	    }
 	}
 
 	for (tic = start; tic <= end; tic += step) {
 
 	    /* {{{  calc internal and user co-ords */
-	    if (!axis_array[axis].log) {
+	    if (axis == POLAR_AXIS) {
+		/* Defer translation until after limit check */
+		internal = tic;
+	    } else if (!axis_array[axis].log) {
 		internal = (axis_array[axis].is_timedata)
 		    ? time_tic_just(timelevel[axis], tic)
 		    : tic;
@@ -1107,14 +1128,16 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 			int d = (long) floor(user + 0.5) % 7;
 			if (d < 0)
 			    d += 7;
-			(*callback) (axis, internal, abbrev_day_names[d], lgrd);
+			(*callback) (axis, internal, abbrev_day_names[d], lgrd,
+					def->def.user);
 			break;
 		    }
 		case TIC_MONTH:{
 			int m = (long) floor(user - 1) % 12;
 			if (m < 0)
 			    m += 12;
-			(*callback) (axis, internal, abbrev_month_names[m], lgrd);
+			(*callback) (axis, internal, abbrev_month_names[m], lgrd,
+					def->def.user);
 			break;
 		    }
 		default:{	/* comp or series */
@@ -1123,10 +1146,16 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 			    /* If they are doing polar time plot, good luck to them */
 			    gstrftime(label, 24, ticfmt[axis], (double) user);
 			} else if (polar) {
-			    /* if rmin is set, we stored internally with r-rmin */
-			    double r = fabs(user) +
-				((axis_array[R_AXIS].autoscale & AUTOSCALE_MIN)
-				 ? 0 : axis_array[R_AXIS].min);
+			    double min = (R_AXIS.autoscale & AUTOSCALE_MIN) ? 0 : R_AXIS.min;
+			    double r = fabs(user) + min;
+			    /* POLAR_AXIS is the only sane axis, where the actual value */
+			    /* is stored and we shift its position just before plotting.*/
+			    if (axis == POLAR_AXIS) {
+				internal = AXIS_LOG_VALUE(axis, tic)
+					 - AXIS_LOG_VALUE(axis, R_AXIS.min);
+				r = tic;
+			    }
+
 			    gprintf(label, sizeof(label), ticfmt[axis], log10_base, r);
 			} else {
 			    gprintf(label, sizeof(label), ticfmt[axis], log10_base, user);
@@ -1137,7 +1166,16 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 			&&  !inrange(internal,axis_array[axis].data_min,axis_array[axis].data_max))
 			    continue;
 
-			(*callback) (axis, internal, label, lgrd);
+			(*callback) (axis, internal, label, lgrd, def->def.user);
+
+	 		/* Polar axis tics are mirrored across the origin */
+			if (axis == POLAR_AXIS && (R_AXIS.ticmode & TICS_MIRROR)) {
+			    int save_gridline = lgrd.l_type;
+			    lgrd.l_type = LT_NODRAW;
+			    (*callback) (axis, -internal, label, lgrd, def->def.user);
+			    lgrd.l_type = save_gridline;
+			}
+	    		
 		    }
 		}
 		/* }}} */
@@ -1157,7 +1195,7 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 			       : mplace);
 		    if (inrange(mtic, internal_min, internal_max)
 			&& inrange(mtic, start - step * SIGNIF, end + step * SIGNIF))
-			(*callback) (axis, mtic, NULL, mgrd);
+			(*callback) (axis, mtic, NULL, mgrd, NULL);
 		}
 		/* }}} */
 	    }
@@ -1392,6 +1430,127 @@ axis_draw_2d_zeroaxis(AXIS_INDEX axis, AXIS_INDEX crossaxis)
 }
 /* }}} */
 
+void load_one_range(AXIS_INDEX axis, double *a, t_autoscale *autoscale, t_autoscale which )
+{
+    double number;
+    
+    assert( which==AUTOSCALE_MIN || which==AUTOSCALE_MAX );
+
+    if (equals(c_token, "*")) {
+	/*  easy:  do autoscaling!  */
+	*autoscale |= which;
+	if (which==AUTOSCALE_MIN) {
+	    axis_array[axis].min_constraint &= ~CONSTRAINT_LOWER;
+	    axis_array[axis].min_lb = 0;  /*  dummy entry  */
+	} else {
+	    axis_array[axis].max_constraint &= ~CONSTRAINT_LOWER;
+	    axis_array[axis].max_lb = 0;  /*  dummy entry  */
+	}
+	c_token++;
+    } else {
+	/*  this _might_ be autoscaling with constraint or fixed value */
+	/*  The syntax of '0 < *...' confuses the parser as he will try to
+            include the '<' as a comparison operator in the expression.
+            Setting scanning_range_in_progress will stop the parser from
+            trying to build an action table if he finds '<' followed by '*'
+            (which would normaly trigger a 'invalid expression'),  */
+	scanning_range_in_progress = TRUE;
+	GET_NUM_OR_TIME(number, axis);
+	scanning_range_in_progress = FALSE;
+
+	if (END_OF_COMMAND)
+	    int_error(c_token, "unfinished range");
+
+	if (equals(c_token, "<")) {
+	    /*  this _seems_ to be autoscaling with lower bound  */
+	    c_token++;
+	    if (END_OF_COMMAND) {
+		int_error(c_token, "unfinished range with constraint");
+	    } else if (equals(c_token, "*")) {
+		/*  okay:  this _is_ autoscaling with lower bound!  */
+		*autoscale |= which;
+		if (which==AUTOSCALE_MIN) {
+		    axis_array[axis].min_constraint |= CONSTRAINT_LOWER;
+		    axis_array[axis].min_lb = number;
+		} else {
+		    axis_array[axis].max_constraint |= CONSTRAINT_LOWER;
+		    axis_array[axis].max_lb = number;
+		}
+		c_token++;
+	    } else {
+		int_error(c_token, "malformed range with constarint");
+            }
+        } else if (equals(c_token, ">")) {
+	    int_error(c_token, "malformed range with constraint (use '<' only)");
+	} else { 
+	    /*  no autoscaling-with-lower-bound but simple fixed value only  */
+	    *autoscale &= ~which;
+	    if (which==AUTOSCALE_MIN) {
+		axis_array[axis].min_constraint = CONSTRAINT_NONE;
+		axis_array[axis].min_ub = 0;  /*  dummy entry  */
+	    } else {
+		axis_array[axis].max_constraint = CONSTRAINT_NONE;
+		axis_array[axis].max_ub = 0;  /*  dummy entry  */
+	    }
+	    *a = number;
+        }
+    }
+    
+    if (*autoscale & which) {
+	/*  check for upper bound only if autoscaling is on  */
+	if (END_OF_COMMAND)  int_error(c_token, "unfinished range");
+	if (equals(c_token, "<")) {
+	    /*  looks like upper bound up to now...  */
+
+	    c_token++;
+	    if (END_OF_COMMAND) int_error(c_token, "unfinished range with constraint");
+
+	    GET_NUM_OR_TIME(number, axis);
+	    /*  this autoscaling has an upper bound:  */
+
+	    if (which==AUTOSCALE_MIN) {
+		axis_array[axis].min_constraint |= CONSTRAINT_UPPER;
+		axis_array[axis].min_ub = number;
+	    } else {
+		axis_array[axis].max_constraint |= CONSTRAINT_UPPER;
+		axis_array[axis].max_ub = number;
+	    }
+	} else if (equals(c_token, ">")) {
+	    int_error(c_token, "malformed range with constraint (use '<' only)");
+	} else {
+	    /*  there is _no_ upper bound on this autoscaling  */
+	    if (which==AUTOSCALE_MIN) {
+		axis_array[axis].min_constraint &= ~CONSTRAINT_UPPER;
+		axis_array[axis].min_ub = 0;  /*  dummy entry  */
+	    } else {
+		axis_array[axis].max_constraint &= ~CONSTRAINT_UPPER;
+		axis_array[axis].max_ub = 0;  /*  dummy entry  */
+	    }
+	}
+    } else if (!END_OF_COMMAND){
+	/*  no autoscaling = fixed value --> complain about constraints  */
+	if (equals(c_token, "<") || equals(c_token, ">") ) {
+	    int_error(c_token, "no upper bound constraint allowed if not autoscaling");
+	}
+    }
+
+    /*  Consitency check  */
+    if (*autoscale & which) {
+	if (which==AUTOSCALE_MIN && axis_array[axis].min_constraint==CONSTRAINT_BOTH) {
+	    if (axis_array[axis].min_ub < axis_array[axis].min_lb ) {
+		int_warn(c_token,"Upper bound of constraint < lower bound:  Turning of constraints.");
+		axis_array[axis].min_constraint = CONSTRAINT_NONE;
+	    }
+	}
+	if (which==AUTOSCALE_MAX && axis_array[axis].max_constraint==CONSTRAINT_BOTH) {
+	    if (axis_array[axis].max_ub < axis_array[axis].max_lb ) {
+		int_warn(c_token,"Upper bound of constraint < lower bound:  Turning of constraints.");
+		axis_array[axis].max_constraint = CONSTRAINT_NONE;
+	    }
+	}
+    }
+}
+
 
 /* {{{ load_range() */
 /* loads a range specification from the input line into variables 'a'
@@ -1399,19 +1558,18 @@ axis_draw_2d_zeroaxis(AXIS_INDEX axis, AXIS_INDEX crossaxis)
 t_autoscale
 load_range(AXIS_INDEX axis, double *a, double *b, t_autoscale autoscale)
 {
-    if (equals(c_token, "]"))
+    double lb, ub;
+
+    if (equals(c_token, "]")) {
+	axis_array[axis].min_constraint = CONSTRAINT_NONE;
+	axis_array[axis].max_constraint = CONSTRAINT_NONE;
 	return (autoscale);
+    }
 
     if (END_OF_COMMAND) {
 	int_error(c_token, "starting range value or ':' or 'to' expected");
     } else if (!equals(c_token, "to") && !equals(c_token, ":")) {
-	if (equals(c_token, "*")) {
-	    autoscale |= AUTOSCALE_MIN;
-	    c_token++;
-	} else {
-	    GET_NUM_OR_TIME(*a, axis);
-	    autoscale &= ~AUTOSCALE_MIN;
-	}
+	load_one_range(axis, a, &autoscale, AUTOSCALE_MIN );
     }
 
     if (!equals(c_token, "to") && !equals(c_token, ":"))
@@ -1419,13 +1577,7 @@ load_range(AXIS_INDEX axis, double *a, double *b, t_autoscale autoscale)
     c_token++;
 
     if (!equals(c_token, "]")) {
-	if (equals(c_token, "*")) {
-	    autoscale |= AUTOSCALE_MAX;
-	    c_token++;
-	} else {
-	    GET_NUM_OR_TIME(*b, axis);
-	    autoscale &= ~AUTOSCALE_MAX;
-	}
+	load_one_range(axis, b, &autoscale, AUTOSCALE_MAX );
     }
 
     /* HBB 20030127: If range input backwards, automatically turn on
@@ -1450,7 +1602,9 @@ load_range(AXIS_INDEX axis, double *a, double *b, t_autoscale autoscale)
  */
 
 void
-widest_tic_callback(AXIS_INDEX axis, double place, char *text, struct lp_style_type grid)
+widest_tic_callback(AXIS_INDEX axis, double place, char *text,
+    struct lp_style_type grid,
+    struct ticmark *userlabels)
 {
     (void) axis;		/* avoid "unused parameter" warnings */
     (void) place;
@@ -1502,12 +1656,9 @@ TBOOLEAN
 some_grid_selected()
 {
     AXIS_INDEX i;
-    /* Old version would have been just this: */
-    /* return (grid_selection != GRID_OFF); */
-    for (i = 0; i < AXIS_ARRAY_SIZE; i++)
-	if (axis_array[i].gridmajor || axis_array[i].gridminor) {
+    for (i = 0; i <= LAST_REAL_AXIS; i++)
+	if (axis_array[i].gridmajor || axis_array[i].gridminor)
 	    return TRUE;
-	}
     return FALSE;
 }
 
@@ -1663,7 +1814,7 @@ add_tic_user(AXIS_INDEX axis, char *label, double position, int level)
     } else {
 	/* The new tic must duplicate position of tic->next */
 	if (position != tic->next->position)
-	    fprintf(stderr,"add_tic_user: list sort error\n");
+	    int_warn(NO_CARET,"add_tic_user: list sort error");
 	newtic = tic->next;
 	/* Don't over-write a major tic with a minor tic */
 	if (newtic->level < level)

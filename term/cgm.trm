@@ -1,5 +1,5 @@
 /* Hey Emacs this is -*- C -*-
- * $Id: cgm.trm,v 1.92 2009/06/08 04:37:29 sfeam Exp $
+ * $Id: cgm.trm,v 1.95 2010/03/14 06:43:17 sfeam Exp $
  */
 
 /* GNUPLOT - cgm.trm */
@@ -1284,10 +1284,8 @@ CGM_write_int(int value)
 	char c[2];
     } u;
 
-#if !defined(DOS16) && !defined(WIN16)
     assert( -32768 <= value );
     assert( value <= 32767 );
-#endif
 
     u.c[0] = (value >> 8) & 255;	/* convert to network order */
     u.c[1] = value & 255;
@@ -1670,7 +1668,7 @@ CGM_find_nearest_color(t_colorspec *colorspec)
     int k;
     int dr, dg, db, distance;
 
-    for (k=0; k<cgm_user_color_max; k++) {
+    for (k=0; k<cgm_user_color_count; k++) {
 	dr = cgm_user_color_table[++i] - red;
 	dg = cgm_user_color_table[++i] - green;
 	db = cgm_user_color_table[++i] - blue;
@@ -1714,7 +1712,7 @@ TERM_TABLE_START(cgm_driver)
     CGM_linetype, CGM_put_text, CGM_text_angle,
     CGM_justify_text, CGM_point, do_arrow, CGM_set_font,
     CGM_set_pointsize,
-    TERM_BINARY|TERM_CAN_DASH,	/* various flags */
+    TERM_BINARY|TERM_CAN_DASH|TERM_LINEWIDTH,	/* various flags */
     NULL,			/* after one plot of multiplot */
     NULL,			/* before subsequent plot of multiplot */
     CGM_fillbox,

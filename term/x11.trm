@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: x11.trm,v 1.184 2009/05/29 03:22:09 sfeam Exp $
+ * $Id: x11.trm,v 1.189 2010/09/16 02:50:51 sfeam Exp $
  *
  */
 
@@ -185,7 +185,6 @@ static FILE *X11_ipc = (FILE *) 0;
 #define X11_ipc_back_fd ipc_back_fd
 #endif
 
-static char **xargv = (char **) NULL;
 /* reserve a minimum 10 driver opts */
 static char *optvec[2 * X11_nopts + 1 + 10];
 
@@ -302,13 +301,9 @@ int
 X11_args(int argc, char *argv[])
 {
     int nx11 = 0, i, n;
+    char **xargv, **xargv_orig; 
 
-    xargv = (char **) gp_alloc(argc * sizeof(char *), "<xargv>");
-
-    if (!xargv) {
-	fputs("not enough memory to copy argv - quitting\n", stderr);
-	exit(EXIT_FAILURE);
-    }
+    xargv = xargv_orig = (char **) gp_alloc(argc * sizeof(char *), "<xargv>");
 
     /* We make a copy of the argument vector because
      * argv is modified later. */
@@ -334,13 +329,16 @@ X11_args(int argc, char *argv[])
 		if (strcmp(*argv, "-display") == 0)
 		    X11_Display++;
 		if (X11_cmdopts[n].arg == hasArg) {
-		    if (--argc <= 0)
+		    if (--argc <= 0) {
+			free(xargv_orig);
 			return nx11;
+		    }
 		    optvec[i++] = *++xargv, ++argv;
 		    nx11++;
 		}
 		if (i >= (sizeof(optvec) / sizeof(char))) {
 		    fprintf(stderr, "warning: X11 options will be truncated\n");
+		    free(xargv_orig);
 		    return nx11;	/* optvec is full */
 		}
 		nx11++;
@@ -350,7 +348,7 @@ X11_args(int argc, char *argv[])
 	if (n == X11_nopts)
 	    break;
     }
-
+    free(xargv_orig);
     return (nx11);
 }
 
@@ -936,16 +934,6 @@ X11_init()
 
     if (!X11_ipc) {
 	/* first time through or after a reset */
-#if defined(OSK)
-	/* OS-9 popen() does not block on close for child to end, so
-	 * we can safely use it here
-	 */
-	/* FIXME HBB 20020214: This doesn't understand X11_DRIVER_DIR
-	 * or $GNUPLOT_DRIVER_DIR yet. This may break execution of
-	 * freshly built gnuplot until 'make install' */
-
-	   X11_ipc = popen(X11_command, "w");
-#else
 #if defined(OS2)
       /* FIXME amai 20020219: nice try...
        * But popen() does return a non-NULL handle to almost command,
@@ -956,7 +944,7 @@ X11_init()
       {
 	   X11_ipc = popen(X11_command, "w");
       }
-#else /* !(OSK || OS/2) */
+#else /* !(OS/2) */
 	int fdes[2];
 # ifdef PIPE_IPC
 	int fdes_back[2];
@@ -1025,7 +1013,6 @@ X11_init()
 	/* close the read side of the parent's forward fd */
 	close(fdes[0]);
 	X11_ipc = fdopen(fdes[1], "w");
-#endif /* !OSK  */
 #endif /* !OS/2 */
     }
 
@@ -1906,6 +1893,7 @@ PASS2:
 
 	/* else carry on and process the rest of the string */
     }
+    X11_set_font("");
 
     /* Restore text justification flag after 2nd pass */
     if (pass > 1) {
@@ -2081,7 +2069,7 @@ TERM_TABLE_START(x11_driver)
     X11_linetype, X11_put_text, X11_text_angle,
     X11_justify_text, X11_point, do_arrow, X11_set_font,
     X11_pointsize, 
-    TERM_CAN_MULTIPLOT|TERM_INIT_ON_REPLOT|TERM_NO_OUTPUTFILE|TERM_CAN_DASH|TERM_ALPHA_CHANNEL,
+    TERM_CAN_MULTIPLOT|TERM_INIT_ON_REPLOT|TERM_NO_OUTPUTFILE|TERM_CAN_DASH|TERM_ALPHA_CHANNEL|TERM_LINEWIDTH,
     X11_text /* suspend can use same routine */ , 0 /* resume */ ,
     X11_fillbox, X11_linewidth
 #ifdef USE_MOUSE
@@ -2110,10 +2098,6 @@ START_HELP(x11)
 "?term x11",
 "?x11",
 "?X11",
-" `gnuplot` provides the `x11` terminal type for use with X servers.  This",
-" terminal type is set automatically at startup if the `DISPLAY` environment",
-" variable is set, if the `TERM` environment variable is set to `xterm`, or",
-" if the `-display` command line option is used.",
 "",
 " Syntax:",
 "    set terminal x11 {<n> | window \"<string>\"}",

@@ -1,5 +1,5 @@
 /*
- * $Id: term_api.h,v 1.82 2009/06/08 04:37:29 sfeam Exp $
+ * $Id: term_api.h,v 1.92 2011/01/26 06:09:19 sfeam Exp $
  */
 
 /* GNUPLOT - term_api.h */
@@ -96,7 +96,7 @@ typedef struct lp_style_type {	/* contains all Line and Point properties */
     /* ... more to come ? */
 } lp_style_type;
 
-#define DEFAULT_LP_STYLE_TYPE {0, -2, 0, 0, 1.0, PTSZ_DEFAULT, FALSE, DEFAULT_COLORSPEC}
+#define DEFAULT_LP_STYLE_TYPE {0, LT_BLACK, 0, 0, 1.0, PTSZ_DEFAULT, FALSE, DEFAULT_COLORSPEC}
 
 typedef enum e_arrow_head {
 	NOHEAD = 0,
@@ -154,11 +154,7 @@ typedef struct t_image {
     TBOOLEAN fallback; /* true == don't use terminal-specific code */
 } t_image;
 
-/* values for the optional flags field - choose sensible defaults
- * these aren't really very sensible names - multiplot attributes
- * depend on whether stdout is redirected or not. Remember that
- * the default is 0. Thus most drivers can do multiplot only if
- * the output is redirected
+/* Values for the flags field of TERMENTRY
  */
 #define TERM_CAN_MULTIPLOT    1  /* tested if stdout not redirected */
 #define TERM_CANNOT_MULTIPLOT 2  /* tested if stdout is redirected  */
@@ -171,6 +167,9 @@ typedef struct t_image {
 #define TERM_CAN_DASH       256  /* terminal supports dashed lines  */
 #define TERM_ALPHA_CHANNEL  512  /* alpha channel transparency      */
 #define TERM_MONOCHROME    1024  /* term is running in mono mode    */
+#define TERM_LINEWIDTH     2048  /* support for set term linewidth  */
+#define TERM_FONTSCALE     4096  /* terminal supports fontscale     */
+#define TERM_IS_LATEX      8192  /* text uses TeX markup            */
 
 /* The terminal interface structure --- heart of the terminal layer.
  *
@@ -183,11 +182,7 @@ typedef struct t_image {
 
 typedef struct TERMENTRY {
     const char *name;
-#ifdef WIN16
-    const char GPFAR description[80];  /* to make text go in FAR segment */
-#else
     const char *description;
-#endif
     unsigned int xmax,ymax,v_char,h_char,v_tic,h_tic;
 
     void (*options) __PROTO((void));
@@ -271,16 +266,13 @@ typedef struct TERMENTRY {
 
 } TERMENTRY;
 
-#ifdef WIN16
-# define termentry TERMENTRY far
-#else
 # define termentry TERMENTRY
-#endif
 
 enum set_encoding_id {
    S_ENC_DEFAULT, S_ENC_ISO8859_1, S_ENC_ISO8859_2, S_ENC_ISO8859_9, S_ENC_ISO8859_15,
-   S_ENC_CP437, S_ENC_CP850, S_ENC_CP852, S_ENC_CP1250, S_ENC_CP1254,
-   S_ENC_KOI8_R, S_ENC_KOI8_U,
+   S_ENC_CP437, S_ENC_CP850, S_ENC_CP852, S_ENC_CP950, 
+   S_ENC_CP1250, S_ENC_CP1251, S_ENC_CP1254, 
+   S_ENC_KOI8_R, S_ENC_KOI8_U, S_ENC_SJIS,
    S_ENC_UTF8,
    S_ENC_INVALID
 };
@@ -334,6 +326,9 @@ extern double curr_arrow_headbackangle;
 /* arrow head filled or not */
 extern int curr_arrow_headfilled;
 
+/* Recycle count for user-defined linetypes */
+extern int linetype_recycle_count;
+
 /* Current 'output' file: name and open filehandle */
 extern char *outstr;
 extern FILE *gpoutfile;
@@ -351,6 +346,7 @@ extern FILE *gpoutfile;
    for PS, for instance).
 */
 extern FILE *gppsfile;
+extern char *PS_psdir;
 
 extern TBOOLEAN multiplot;
 
@@ -442,8 +438,8 @@ void PM_set_gpPMmenu __PROTO((struct t_gpPMmenu * gpPMmenu));
 # endif
 #endif
 
-/* in misc.c */
 void lp_use_properties __PROTO((struct lp_style_type *lp, int tag));
+void load_linetype __PROTO((struct lp_style_type *lp, int tag));
 
 /* Wrappers for term->path() */
 void newpath __PROTO((void));

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: hidden3d.c,v 1.69 2008/09/24 03:19:06 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: hidden3d.c,v 1.77 2010/09/28 22:40:17 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - hidden3d.c */
@@ -549,18 +549,20 @@ make_edge(
     p_vertex v1 = vlist + vnum1;
     p_vertex v2 = vlist + vnum2;
 
+    thisedge->style = style;
+    thisedge->lp = lp;
+    thisedge->next = next;
+
     /* ensure z ordering inside each edge */
     if (v1->z >= v2->z) {
 	thisedge->v1 = vnum1;
 	thisedge->v2 = vnum2;
+	if (lp->p_type == PT_ARROWHEAD) thisedge->style = PT_ARROWHEAD;
     } else {
 	thisedge->v1 = vnum2;
 	thisedge->v2 = vnum1;
+	if (lp->p_type == PT_ARROWHEAD) thisedge->style = PT_BACKARROW;
     }
-
-    thisedge->style = style;
-    thisedge->lp = lp;
-    thisedge->next = next;
 
     return thisedge - elist;
 }
@@ -619,7 +621,7 @@ store_edge(
     if (drawbits &&		/* no bits set: 'blind' edge --> no test! */
 	! (hiddenTriangleLinesdrawnPattern & drawbits)
 	)
-	style = -3;
+	style = LT_NODRAW;
 
     return make_edge(vnum1, vnum2, lp, style, -1);
 }
@@ -936,13 +938,13 @@ color_edges(
 	switch (casenumber) {
 	case 0:
 	    /* both backfacing */
-	    if (elist[new_edge].style >= -2)
+	    if (elist[new_edge].style != LT_NODRAW)
 		elist[new_edge].style	= below;
-	    if (elist[old_edge].style >= -2)
+	    if (elist[old_edge].style != LT_NODRAW)
 		elist[old_edge].style = below;
 	    break;
 	case 2:
-	    if (elist[new_edge].style >= -2)
+	    if (elist[new_edge].style != LT_NODRAW)
 		elist[new_edge].style = below;
 	    /* FALLTHROUGH */
 	case 1:
@@ -950,7 +952,7 @@ color_edges(
 	    /* new back-, old one frontfacing */
 	    if (((new_edge == old_edge)
 		 && hiddenHandleBentoverQuadrangles) /* a diagonal edge! */
-		|| (elist[old_edge].style >= -2)) {
+		|| (elist[old_edge].style != LT_NODRAW)) {
 		/* conflict has occured: two polygons meet here, with opposige
 		 * sides being shown. What's to do?
 		 * 1) find a vertex of one polygon outside this common
@@ -1035,7 +1037,8 @@ build_networks(struct surface_points *plots, int pcount)
     long int *north_edges;	/* stores edges of polyline above */
     long int *these_edges;	/* same, being built for use by next turn */
     struct iso_curve *icrvs;
-    int above = -3, below;	/* line type for edges of front/back side*/
+    int above = LT_NODRAW;	/* line type for edges of front side*/
+    int below = LT_NODRAW;	/* line type for edges of back side*/
     struct lp_style_type *lp;	/* pointer to line and point properties */
 
     /* Count out the initial sizes needed for the polygon and vertex
@@ -1167,6 +1170,15 @@ build_networks(struct surface_points *plots, int pcount)
 	 * initialized sensibly --- thou hast been warned */
 	lp_style = &(this_plot->lp_properties);
 
+	if (this_plot->plot_style == VECTOR) {
+	    lp->p_type = PT_ARROWHEAD;
+	    if (this_plot->arrow_properties.head == NOHEAD) {
+		this_plot->arrow_properties.head_length= 1;
+		this_plot->arrow_properties.head_angle = 0;
+	    }
+	    apply_3dhead_properties(&(this_plot->arrow_properties));
+	}
+
 	/* HBB 20000715: new initialization code block for non-grid
 	 * structured datasets. Sufficiently different from the rest
 	 * to warrant separate code, I think. */
@@ -1226,12 +1238,25 @@ build_networks(struct surface_points *plots, int pcount)
 			break;
 		    case BOXES:
 		    case FILLEDCURVES:
-		    case IMPULSES:
 			/* set second vertex to the low end of zrange */
 			{
 			    coordval remember_z = points[i].z;
 
 			    points[i].z = axis_array[FIRST_Z_AXIS].min;
+			    basevertex = store_vertex(points + i, lp_style,
+						      color_from_column);
+			    points[i].z = remember_z;
+			}
+			if (basevertex > 0)
+			    store_edge(basevertex, edir_impulse, 0, lp, above);
+			break;
+
+		    case IMPULSES:
+			/* set second vertex to z=0 */
+			{
+			    coordval remember_z = points[i].z;
+
+			    points[i].z = 0.0;
 			    basevertex = store_vertex(points + i, lp_style,
 						      color_from_column);
 			    points[i].z = remember_z;
@@ -1414,7 +1439,8 @@ build_networks(struct surface_points *plots, int pcount)
 		    {
 			coordval remember_z = points[i].z;
 
-			points[i].z = axis_array[FIRST_Z_AXIS].min;
+			points[i].z = (this_plot->plot_style == IMPULSES)
+					? 0.0 : axis_array[FIRST_Z_AXIS].min;
 			basevertex = store_vertex(points + i, lp_style,
 						  color_from_column);
 			points[i].z = remember_z;
@@ -1584,7 +1610,7 @@ draw_vertex(p_vertex v)
 
     TERMCOORD(v, x, y);
     if (v->lp_style && v->lp_style->p_type >= -1 && !clip_point(x,y)) {
-	int colortype = v->lp_style->pm3d_color.type;
+	struct t_colorspec *tc = &(v->lp_style->pm3d_color);
 
 	if (v->label)  {
 	    write_label(x,y, v->label);
@@ -1593,14 +1619,19 @@ draw_vertex(p_vertex v)
 	}
 
 	/* EAM DEBUG - Check for extra point properties */
-	if (colortype == TC_LT)
-	    /* Should have been set already! */
-	    ;
-	else if (colortype == TC_RGB && v->lp_style->pm3d_color.lt == LT_COLORFROMCOLUMN)
-	    set_rgbcolor(v->real_z);
-	else if (colortype == TC_RGB)
-	    set_rgbcolor(v->lp_style->pm3d_color.lt);
-	else if (colortype == TC_Z)
+	if (tc->type == TC_LINESTYLE && tc->lt == LT_COLORFROMCOLUMN) {
+	    struct lp_style_type style = *(v->lp_style);
+	    load_linetype(&style, (int)v->real_z);
+	    tc = &style.pm3d_color;
+	    apply_pm3dcolor(tc, term);
+	}
+	else if (tc->type == TC_RGB && tc->lt == LT_COLORFROMCOLUMN)
+	    set_rgbcolor((int)v->real_z);
+	else if (tc->type == TC_RGB)
+	    set_rgbcolor(tc->lt);
+	else if (tc->type == TC_CB)
+	    set_color( cb2gray(v->real_z) );
+	else if (tc->type == TC_Z)
 	    set_color( cb2gray(z2cb(v->real_z)) );
 
 #ifdef HIDDEN3D_VAR_PTSIZE
@@ -1616,16 +1647,60 @@ draw_vertex(p_vertex v)
 }
 
 
-/* The function that actually does the drawing of the visible portions
- * of lines */
-/* HBB 20001108: changed to take the pointers to the end vertices as
- * additional arguments. */
+/* The function that actually draws the visible portions of lines */
 static void
 draw_edge(p_edge e, p_vertex v1, p_vertex v2)
 {
-    assert (e >= elist && e < elist + edges.end);
+    /* It used to be that p_edge contained style as a integer linetype.
+     * This destroyed any style attributes set in the splot command.
+     * We really just want to extract a colorspec.
+     */
+    struct t_colorspec color = e->lp->pm3d_color;
+    struct lp_style_type lptemp = *(e->lp);
+    TBOOLEAN recolor = FALSE;
+    TBOOLEAN arrow = (lptemp.p_type == PT_ARROWHEAD || lptemp.p_type == PT_BACKARROW);
+    int varcolor;
 
-    draw3d_line_unconditional(v1, v2, e->lp, e->style);
+    if (arrow && (e->style == PT_BACKARROW))
+	varcolor = v2->real_z;
+    else
+	varcolor = v1->real_z;
+
+    /* This handles 'lc rgb variable' */
+    if (color.type == TC_RGB && color.lt == LT_COLORFROMCOLUMN) {
+	recolor = TRUE;
+	lptemp.pm3d_color.lt = varcolor;
+    } else
+
+    /* This handles 'lc variable' */
+    if (lptemp.l_type == LT_COLORFROMCOLUMN) {
+	recolor = TRUE;
+	load_linetype(&lptemp, varcolor);
+    } else
+
+    /* This handles style VECTORS */
+    if (arrow) {
+	lptemp.p_type = e->style;
+    } else
+
+    /* This is the default style: color top and bottom in successive colors */
+    if ((hiddenBacksideLinetypeOffset != 0)
+    &&  (e->lp->pm3d_color.type != TC_Z)) {
+	recolor = TRUE;
+	load_linetype(&lptemp, e->style + 1);
+    }
+
+    if (recolor) {
+	color = lptemp.pm3d_color;
+	lptemp = *(e->lp);
+	lptemp.pm3d_color = color;
+	if (arrow)
+	    lptemp.p_type = e->style;
+	else
+	    lptemp.l_type = e->style;
+    }
+
+    draw3d_line_unconditional(v1, v2, &lptemp, color);
     if (e->lp->pointflag) {
 	draw_vertex(v1);
 	draw_vertex(v2);
@@ -2058,7 +2133,7 @@ draw_line_hidden(
      * can't use in_front() because the datastructures are partly
      * invalid. So just draw the line and be done with it */
     if (!polygons.end) {
-	draw3d_line_unconditional(v1, v2, lp, lp->l_type);
+	draw3d_line_unconditional(v1, v2, lp, lp->pm3d_color);
 	return;
     }
 
@@ -2127,7 +2202,7 @@ plot3d_hidden(struct surface_points *plots, int pcount)
 	temporary_pfirst = pfirst;
 
 	while (efirst >=0) {
-	    if (elist[efirst].style >= -2) /* skip invisible edges */
+	    if (elist[efirst].style != LT_NODRAW) /* skip invisible edges */
 		in_front(efirst, elist[efirst].v1, elist[efirst].v2,
 			 &temporary_pfirst);
 	    efirst = elist[efirst].next;

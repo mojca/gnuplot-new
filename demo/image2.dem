@@ -405,7 +405,7 @@ print "the various dimensions to change.  However, when the qualifier"
 print "\'array\' is entered at the command line, the array dimensions"
 print "adjust so that \'array=XxYxZ\' is always the number of samples"
 print "along the Cartesian x, y and z directions, respectively."
-print "
+print ""
 set size 1.0, 1.0
 set origin 0.0, 0.0
 set multiplot
@@ -505,7 +505,7 @@ reset
 print ""
 print "Images maintain orientation with respect to axis direction."
 print "All plots show the same exact plot, but with various states"
-print "of reversed axes.  The upper left plot has reveresed x axis,"
+print "of reversed axes.  The upper left plot has reversed x axis,"
 print "the upper right plot has conventional axes, the lower left"
 print "plot has both reversed x and y axes, and the lower right"
 print "plot has reversed y axis."

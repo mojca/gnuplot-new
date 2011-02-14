@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: canvas.trm,v 1.25 2009/05/30 17:55:42 sfeam Exp $
+ * $Id: canvas.trm,v 1.41 2010/11/26 23:37:41 sfeam Exp $
  *
  */
 
@@ -32,6 +32,9 @@
  *   Ethan A Merritt, May 2009
  *	Give each plot its own namespace for mousing (allows multiple mouseable
  *	plots in a single HTML document).
+ *   Ethan A Merritt, Nov 2010
+ *	Dashed line support, butt/rounded line properties
+ *	revised javascript with all methods and variables in container gnuplot()
  *
  * send your comments or suggestions to (gnuplot-info@lists.sourceforge.net).
  *
@@ -91,12 +94,16 @@ static int canvas_xmax = CANVAS_XMAX;
 static int canvas_ymax = CANVAS_YMAX;
 static int canvas_line_type = LT_UNDEFINED;
 static double canvas_linewidth = 1.0;
+static double canvas_dashlength_factor = 1.0;
 static double CANVAS_ps = 1;	/* pointsize multiplier */
 static double canvas_font_size = 10;
+static double canvas_fontscale = 1.0;
 static char *canvas_justify = "";
 static int canvas_text_angle = 0;
 static int canvas_in_a_path = FALSE;
 static int already_closed = FALSE;
+static TBOOLEAN canvas_dashed = FALSE;
+static TBOOLEAN canvas_rounded = FALSE;
 static TBOOLEAN CANVAS_mouseable = FALSE;
 static TBOOLEAN CANVAS_standalone = TRUE;
 static char *CANVAS_name = NULL;
@@ -113,7 +120,8 @@ static struct {
 enum CANVAS_case {
     CANVAS_SIZE, CANVAS_FSIZE, CANVAS_NAME, CANVAS_STANDALONE, CANVAS_TITLE,
     CANVAS_LINEWIDTH, CANVAS_MOUSING, CANVAS_JSDIR, CANVAS_ENH, CANVAS_NOENH,
-    CANVAS_OTHER
+    CANVAS_FONTSCALE, CANVAS_SOLID, CANVAS_DASHED, CANVAS_DASHLENGTH,
+    CANVAS_ROUNDED, CANVAS_BUTT, CANVAS_OTHER
 };
 
 static struct gen_table CANVAS_opts[] =
@@ -130,6 +138,13 @@ static struct gen_table CANVAS_opts[] =
     { "lw", CANVAS_LINEWIDTH },
     { "linew$idth", CANVAS_LINEWIDTH },
     { "title", CANVAS_TITLE },
+    { "fontscale", CANVAS_FONTSCALE },
+    { "solid", CANVAS_SOLID },
+    { "dash$ed", CANVAS_DASHED },
+    { "dashl$ength", CANVAS_DASHLENGTH },
+    { "dl", CANVAS_DASHLENGTH },
+    { "round$ed", CANVAS_ROUNDED },
+    { "butt", CANVAS_BUTT },
     { NULL, CANVAS_OTHER }
 };
 
@@ -164,6 +179,7 @@ CANVAS_options()
     if (c_token != 2) {
 	/* Re-initialize a few things */
 	canvas_font_size = 10;
+	canvas_fontscale = 1.0;
 	CANVAS_standalone = TRUE;
 	CANVAS_mouseable = FALSE;
 	free(CANVAS_name);
@@ -173,6 +189,8 @@ CANVAS_options()
 	free(CANVAS_scriptdir);
 	CANVAS_scriptdir = NULL;
 	canvas_linewidth = 1.0;
+	canvas_dashed = FALSE;
+	canvas_dashlength_factor = 1.0;
     }
 
     while (!END_OF_COMMAND) {
@@ -246,19 +264,52 @@ CANVAS_options()
 		canvas_linewidth = 1.0;
 	    break;
 
+	case CANVAS_FONTSCALE:
+	    canvas_fontscale = real_expression();
+	    if (canvas_fontscale <= 0)
+		canvas_fontscale = 1.0;
+	    break;
+
+	case CANVAS_SOLID:
+	    canvas_dashed = FALSE;
+	    break;
+
+	case CANVAS_DASHED:
+	    canvas_dashed = TRUE;
+	    break;
+
+	case CANVAS_DASHLENGTH:
+	    canvas_dashlength_factor = real_expression();
+	    if (canvas_dashlength_factor <= 0.2)
+		canvas_dashlength_factor = 1.0;
+	    break;
+
+	case CANVAS_ROUNDED:
+	    canvas_rounded = TRUE;
+	    break;
+
+	case CANVAS_BUTT:
+	    canvas_rounded = FALSE;
+	    break;
+
 	default:
 	    int_warn(c_token-1,"unrecognized terminal option");
  	    break;
 	}
     }
 
-    term->v_char = canvas_font_size * CANVAS_OVERSAMPLE;
-    term->h_char = canvas_font_size * 0.8 * CANVAS_OVERSAMPLE;
+    term->v_char = canvas_font_size * canvas_fontscale * CANVAS_OVERSAMPLE;
+    term->h_char = canvas_font_size * canvas_fontscale * 0.8 * CANVAS_OVERSAMPLE;
 
-    sprintf(term_options, "size %d,%d", (int)(term->xmax/CANVAS_OVERSAMPLE), (int)(term->ymax/CANVAS_OVERSAMPLE));
+    sprintf(term_options, canvas_dashed ? " dashed" : " solid");
+    if (canvas_dashed && canvas_dashlength_factor != 1.0)
+	sprintf(term_options + strlen(term_options), " dashlength %3.1f", canvas_dashlength_factor);
+    sprintf(term_options + strlen(term_options), canvas_rounded ? " rounded" : " butt");
+    sprintf(term_options + strlen(term_options), " size %d,%d", (int)(term->xmax/CANVAS_OVERSAMPLE), (int)(term->ymax/CANVAS_OVERSAMPLE));
     sprintf(term_options + strlen(term_options), "%s fsize %g lw %g", 
 	term->put_text == ENHCANVAS_put_text ? " enhanced" : "",
 	canvas_font_size, canvas_linewidth);
+    sprintf(term_options + strlen(term_options), " fontscale %g", canvas_fontscale);
     if (CANVAS_name)
 	sprintf(term_options + strlen(term_options), " name \"%s\"", CANVAS_name);
     else {
@@ -281,6 +332,9 @@ CANVAS_init()
 TERM_PUBLIC void
 CANVAS_graphics()
 {
+#if !defined(VMS)
+    int len;
+#endif
     /* Force initialization at the beginning of each plot */
     canvas_line_type = LT_UNDEFINED;
     canvas_text_angle = 0;
@@ -301,7 +355,9 @@ CANVAS_graphics()
 	canvas_default_jsdir = gp_alloc(strlen((char*) szPackageDir)
 			+ strlen(GNUPLOT_JS_DIR) + 2, "jsdir");
 	strcpy(canvas_default_jsdir, (char*) szPackageDir);
-	strcat(canvas_default_jsdir, "\\");
+	len = strlen(canvas_default_jsdir);
+	if (*canvas_default_jsdir && canvas_default_jsdir[len-1] != '\\' && canvas_default_jsdir[len-1] != '/')
+	    strcat(canvas_default_jsdir, "\\");
 	/* GNUPLOT_JS_DIR is _relative_ path */
 	strcat(canvas_default_jsdir, GNUPLOT_JS_DIR);
 # else /* !_Windows */
@@ -312,16 +368,22 @@ CANVAS_graphics()
 	CANVAS_scriptdir = gp_strdup(canvas_default_jsdir);
     }
 
-#if defined(_Windows)
-    if (CANVAS_scriptdir[strlen(CANVAS_scriptdir)-1] != '\\') {
-	CANVAS_scriptdir = gp_realloc(CANVAS_scriptdir, strlen(CANVAS_scriptdir)+2, "jsdir");
-	strcat(CANVAS_scriptdir,"\\");
+#if !defined(VMS)
+    len = strlen(CANVAS_scriptdir);
+# if defined(_Windows)
+    if (*CANVAS_scriptdir && CANVAS_scriptdir[len-1] != '\\' && CANVAS_scriptdir[len-1] != '/') {
+	CANVAS_scriptdir = gp_realloc(CANVAS_scriptdir, len+2, "jsdir");
+	if (CANVAS_scriptdir[len-1] == '\\') /* use backslash if used in jsdir, otherwise slash */
+	    strcat(CANVAS_scriptdir,"\\");
+	else
+	    strcat(CANVAS_scriptdir,"/");
     }
-#elif !defined(VMS)
-    if (CANVAS_scriptdir[strlen(CANVAS_scriptdir)-1] != '/') {
-	CANVAS_scriptdir = gp_realloc(CANVAS_scriptdir, strlen(CANVAS_scriptdir)+2, "jsdir");
+# else
+    if (*CANVAS_scriptdir && CANVAS_scriptdir[len-1] != '/') {
+	CANVAS_scriptdir = gp_realloc(CANVAS_scriptdir, len+2, "jsdir");
 	strcat(CANVAS_scriptdir,"/");
     }
+# endif
 #endif
 
     if (CANVAS_standalone) {
@@ -341,16 +403,24 @@ CANVAS_graphics()
 		"<script src=\"%sgnuplot_common.js\"></script>\n"
 		, CANVAS_scriptdir
 		, CANVAS_scriptdir);
+	if (canvas_dashed)
+	    fprintf(gpoutfile,
+		"<script src=\"%sgnuplot_dashedlines.js\"></script>\n"
+		, CANVAS_scriptdir);
 	if (CANVAS_mouseable)
 	    fprintf(gpoutfile,
 		"<script src=\"%sgnuplot_mouse.js\"></script>\n"
 		, CANVAS_scriptdir);
+	else
+	    fprintf(gpoutfile,
+		"<script type=\"text/javascript\">"
+		"gnuplot.init = function() {};</script>\n");
 	fprintf(gpoutfile,
 		"<script type=\"text/javascript\">\n"
 		"var canvas, ctx;\n"
-		"var grid_lines = true;\n"
-		"var zoomed = false;\n"
-		"var active_plot_name = \"gnuplot_canvas\";\n\n"
+		"gnuplot.grid_lines = true;\n"
+		"gnuplot.zoomed = false;\n"
+		"gnuplot.active_plot_name = \"gnuplot_canvas\";\n\n"
 		"function gnuplot_canvas() {\n"
 		"canvas = document.getElementById(\"gnuplot_canvas\");\n"
 		"ctx = canvas.getContext(\"2d\");\n"
@@ -365,24 +435,55 @@ CANVAS_graphics()
 	);
 	fprintf(gpoutfile,
 	    "// Reinitialize mouse tracking and zoom for this particular plot\n"
-	    "if (active_plot != %s  &&  typeof(mouse_update) != \"undefined\") {\n"
-	    "  active_plot_name = \"%s\";\n"
-	    "  active_plot = %s;\n"
-	    "  canvas.onmousemove = mouse_update;\n"
-	    "  canvas.onmouseup = zoom_in;\n"
-	    "  canvas.onmousedown = saveclick;\n"
-	    "  canvas.onkeypress = do_hotkey;\n"
+	    "if ((typeof(gnuplot.active_plot) == \"undefined\" || gnuplot.active_plot != %s)  &&  typeof(gnuplot.mouse_update) != \"undefined\") {\n"
+	    "  gnuplot.active_plot_name = \"%s\";\n"
+	    "  gnuplot.active_plot = %s;\n"
+	    "  canvas.onmousemove = gnuplot.mouse_update;\n"
+	    "  canvas.onmouseup = gnuplot.zoom_in;\n"
+	    "  canvas.onmousedown = gnuplot.saveclick;\n"
+	    "  canvas.onkeypress = gnuplot.do_hotkey;\n"
 	    "  if (canvas.attachEvent) {canvas.attachEvent('mouseover', %s);}\n"
 	    "  else if (canvas.addEventListener) {canvas.addEventListener('mouseover', %s, false);} \n"
-	    "  zoomed = false;\n"
-	    "  zoom_axis_width = 0;\n"
-	    "  zoom_in_progress = false;\n"
+	    "  gnuplot.zoomed = false;\n"
+	    "  gnuplot.zoom_axis_width = 0;\n"
+	    "  gnuplot.zoom_in_progress = false;\n"
+	    "  gnuplot.polar_mode = %s;\n"
 	    "  ctx.clearRect(0,0,%d,%d);\n"
 	    "}\n",
 		CANVAS_name, CANVAS_name, CANVAS_name, CANVAS_name, CANVAS_name,
+		(polar) ? "true" : "false",
 		(int)(term->xmax / CANVAS_OVERSAMPLE), (int)(term->ymax / CANVAS_OVERSAMPLE)
 	);
     }
+
+    fprintf(gpoutfile,
+	"// short forms of commands provided by gnuplot_common.js\n"
+	"function DT  (dt)  {gnuplot.dashtype(dt);};\n"
+	"function DS  (x,y) {gnuplot.dashstart(x,y);};\n"
+	"function DL  (x,y) {gnuplot.dashstep(x,y);};\n"
+	"function M   (x,y) {if (gnuplot.pattern.length > 0) DS(x,y); else gnuplot.M(x,y);};\n"
+	"function L   (x,y) {if (gnuplot.pattern.length > 0) DL(x,y); else gnuplot.L(x,y);};\n"
+	"function Dot (x,y) {gnuplot.Dot(x,y);};\n"
+	"function Pt  (N,x,y,w) {gnuplot.Pt(N,x,y,w);};\n"
+	"function R   (x,y,w,h) {gnuplot.R(x,y,w,h);};\n"
+	"function T   (x,y,fontsize,justify,string) {gnuplot.T(x,y,fontsize,justify,string);};\n"
+	"function TR  (x,y,angle,fontsize,justify,string) {gnuplot.TR(x,y,angle,fontsize,justify,string);};\n"
+	"function bp  (x,y) {gnuplot.bp(x,y);};\n"
+	"function cfp () {gnuplot.cfp();};\n"
+	"function cfsp() {gnuplot.cfsp();};\n"
+	"\n"
+    );
+    if (canvas_dashed)
+	fprintf(gpoutfile,
+	    "gnuplot.dashlength = %d;\n",
+	    (int)(200 * canvas_dashlength_factor)
+	);
+
+    fprintf(gpoutfile,
+	"ctx.lineCap = \"%s\"; ctx.lineJoin = \"%s\"\n",
+	canvas_rounded ? "round" : "butt",
+	canvas_rounded ? "round" : "miter"
+    );
 
     fprintf(gpoutfile,
 	    "CanvasTextFunctions.enable(ctx);\n"
@@ -404,14 +505,14 @@ CANVAS_text()
     if (TRUE) {
 	struct udvt_entry *udv;
 	fprintf(gpoutfile, "\n// plot boundaries and axis scaling information for mousing \n");
-	fprintf(gpoutfile, "plot_term_xmax = %d;\n", (int)(term->xmax / CANVAS_OVERSAMPLE));
-	fprintf(gpoutfile, "plot_term_ymax = %d;\n", (int)(term->ymax / CANVAS_OVERSAMPLE));
-	fprintf(gpoutfile, "plot_xmin = %.1f;\n", (double)plot_bounds.xleft / CANVAS_OVERSAMPLE);
-	fprintf(gpoutfile, "plot_xmax = %.1f;\n", (double)plot_bounds.xright / CANVAS_OVERSAMPLE);
-	fprintf(gpoutfile, "plot_ybot = %.1f;\n", (double)(term->ymax-plot_bounds.ybot) / CANVAS_OVERSAMPLE);
-	fprintf(gpoutfile, "plot_ytop = %.1f;\n", (double)(term->ymax-plot_bounds.ytop) / CANVAS_OVERSAMPLE);
-	fprintf(gpoutfile, "plot_width = %.1f;\n", (double)(plot_bounds.xright - plot_bounds.xleft) / CANVAS_OVERSAMPLE);
-	fprintf(gpoutfile, "plot_height = %.1f;\n", (double)(plot_bounds.ytop - plot_bounds.ybot) / CANVAS_OVERSAMPLE);
+	fprintf(gpoutfile, "gnuplot.plot_term_xmax = %d;\n", (int)(term->xmax / CANVAS_OVERSAMPLE));
+	fprintf(gpoutfile, "gnuplot.plot_term_ymax = %d;\n", (int)(term->ymax / CANVAS_OVERSAMPLE));
+	fprintf(gpoutfile, "gnuplot.plot_xmin = %.1f;\n", (double)plot_bounds.xleft / CANVAS_OVERSAMPLE);
+	fprintf(gpoutfile, "gnuplot.plot_xmax = %.1f;\n", (double)plot_bounds.xright / CANVAS_OVERSAMPLE);
+	fprintf(gpoutfile, "gnuplot.plot_ybot = %.1f;\n", (double)(term->ymax-plot_bounds.ybot) / CANVAS_OVERSAMPLE);
+	fprintf(gpoutfile, "gnuplot.plot_ytop = %.1f;\n", (double)(term->ymax-plot_bounds.ytop) / CANVAS_OVERSAMPLE);
+	fprintf(gpoutfile, "gnuplot.plot_width = %.1f;\n", (double)(plot_bounds.xright - plot_bounds.xleft) / CANVAS_OVERSAMPLE);
+	fprintf(gpoutfile, "gnuplot.plot_height = %.1f;\n", (double)(plot_bounds.ytop - plot_bounds.ybot) / CANVAS_OVERSAMPLE);
 
 	/* Get true axis ranges as used in the plot */
 	update_gpval_variables(1);
@@ -423,30 +524,37 @@ CANVAS_text()
 	    else if (udv->udv_value.type == CMPLX) \
 		fprintf(gpoutfile, "%s = %g;\n", js_NAME, udv->udv_value.v.cmplx_val.real); \
 	}
-	MOUSE_PARAM("GPVAL_X_MIN", "plot_axis_xmin");
-	MOUSE_PARAM("GPVAL_X_MAX", "plot_axis_xmax");
-	MOUSE_PARAM("GPVAL_Y_MIN", "plot_axis_ymin");
-	MOUSE_PARAM("GPVAL_Y_MAX", "plot_axis_ymax");
+	MOUSE_PARAM("GPVAL_X_MIN", "gnuplot.plot_axis_xmin");
+	MOUSE_PARAM("GPVAL_X_MAX", "gnuplot.plot_axis_xmax");
+	MOUSE_PARAM("GPVAL_Y_MIN", "gnuplot.plot_axis_ymin");
+	MOUSE_PARAM("GPVAL_Y_MAX", "gnuplot.plot_axis_ymax");
+
+	if (polar)
+	    fprintf(gpoutfile, "gnuplot.plot_axis_rmin = %g;\n",
+		(R_AXIS.autoscale & AUTOSCALE_MIN) ? 0.0 : R_AXIS.set_min);
 
 	if ((axis_array[SECOND_X_AXIS].ticmode & TICS_MASK) != NO_TICS) {
-	    MOUSE_PARAM("GPVAL_X2_MIN", "plot_axis_x2min");
-	    MOUSE_PARAM("GPVAL_X2_MAX", "plot_axis_x2max");
+	    MOUSE_PARAM("GPVAL_X2_MIN", "gnuplot.plot_axis_x2min");
+	    MOUSE_PARAM("GPVAL_X2_MAX", "gnuplot.plot_axis_x2max");
 	} else
-	    fprintf(gpoutfile, "plot_axis_x2min = \"none\"\n");
+	    fprintf(gpoutfile, "gnuplot.plot_axis_x2min = \"none\"\n");
 	if ((axis_array[SECOND_Y_AXIS].ticmode & TICS_MASK) != NO_TICS) {
-	    MOUSE_PARAM("GPVAL_Y2_MIN", "plot_axis_y2min");
-	    MOUSE_PARAM("GPVAL_Y2_MAX", "plot_axis_y2max");
+	    MOUSE_PARAM("GPVAL_Y2_MIN", "gnuplot.plot_axis_y2min");
+	    MOUSE_PARAM("GPVAL_Y2_MAX", "gnuplot.plot_axis_y2max");
 	} else
-	    fprintf(gpoutfile, "plot_axis_y2min = \"none\"\n");
+	    fprintf(gpoutfile, "gnuplot.plot_axis_y2min = \"none\"\n");
 #undef MOUSE_PARAM
 
-	fprintf(gpoutfile, "plot_logaxis_x = %d;\n",
+	fprintf(gpoutfile, "gnuplot.plot_logaxis_x = %d;\n",
 		axis_array[FIRST_X_AXIS].log ? 1: 0);
-	fprintf(gpoutfile, "plot_logaxis_y = %d;\n",
+	fprintf(gpoutfile, "gnuplot.plot_logaxis_y = %d;\n",
 		axis_array[FIRST_Y_AXIS].log ? 1: 0);
+	if (polar)
+	    fprintf(gpoutfile, "gnuplot.plot_logaxis_r = %d;\n",
+		axis_array[POLAR_AXIS].log ? 1: 0);
 
-	fprintf(gpoutfile, "plot_axis_width = plot_axis_xmax - plot_axis_xmin;\n");
-	fprintf(gpoutfile, "plot_axis_height = plot_axis_ymax - plot_axis_ymin;\n");
+	fprintf(gpoutfile, "gnuplot.plot_axis_width = gnuplot.plot_axis_xmax - gnuplot.plot_axis_xmin;\n");
+	fprintf(gpoutfile, "gnuplot.plot_axis_height = gnuplot.plot_axis_ymax - gnuplot.plot_axis_ymin;\n");
 
     } /* End of section writing out variables for mousing */
 
@@ -455,9 +563,9 @@ CANVAS_text()
     if (CANVAS_standalone) {
 	fprintf(gpoutfile,
 		"</script>\n"
-		"<link text=\"text/css\" href=\"%sgnuplot_mouse.css\" rel=\"stylesheet\">\n"
+		"<link type=\"text/css\" href=\"%sgnuplot_mouse.css\" rel=\"stylesheet\">\n"
 		"</head>\n"
-		"<body onload=\"gnuplot_canvas(); gnuplot_init();\" oncontextmenu=\"return false;\">\n\n"
+		"<body onload=\"gnuplot_canvas(); gnuplot.init();\" oncontextmenu=\"return false;\">\n\n"
 		"<div class=\"gnuplot\">\n",
 			CANVAS_scriptdir ? CANVAS_scriptdir : ""
 	);
@@ -480,10 +588,10 @@ CANVAS_text()
 		"      <table class=\"mousebox\">\n"
 		"	<tr>\n"
 		"	  <td class=\"icon\"></td>\n"
-		"	  <td class=\"icon\" onclick=toggle_grid><img src=\"%sgrid.png\" id=\"gnuplot_grid_icon\" align=right alt=\"#\" title=\"toggle grid\"></td>\n"
-		"	  <td class=\"icon\" onclick=unzoom><img src=\"%spreviouszoom.png\" id=\"gnuplot_unzoom_icon\" align=right alt=\"unzoom\" title=\"unzoom\"></td>\n"
-		"	  <td class=\"icon\" onclick=rezoom><img src=\"%snextzoom.png\" id=\"gnuplot_rezoom_icon\" align=right alt=\"rezoom\" title=\"rezoom\"></td>\n"
-		"	  <td class=\"icon\" onclick=toggle_zoom_text><img src=\"%stextzoom.png\" id=\"gnuplot_textzoom_icon\" align=right alt=\"zoom text\" title=\"zoom text with plot\"></td>\n"
+		"	  <td class=\"icon\" onclick=gnuplot.toggle_grid><img src=\"%sgrid.png\" id=\"gnuplot_grid_icon\" align=right alt=\"#\" title=\"toggle grid\"></td>\n"
+		"	  <td class=\"icon\" onclick=gnuplot.unzoom><img src=\"%spreviouszoom.png\" id=\"gnuplot_unzoom_icon\" align=right alt=\"unzoom\" title=\"unzoom\"></td>\n"
+		"	  <td class=\"icon\" onclick=gnuplot.rezoom><img src=\"%snextzoom.png\" id=\"gnuplot_rezoom_icon\" align=right alt=\"rezoom\" title=\"rezoom\"></td>\n"
+		"	  <td class=\"icon\" onclick=gnuplot.toggle_zoom_text><img src=\"%stextzoom.png\" id=\"gnuplot_textzoom_icon\" align=right alt=\"zoom text\" title=\"zoom text with plot\"></td>\n"
 		"	  <td class=\"icon\"><img src=\"%shelp.png\" id=\"gnuplot_help_icon\" align=right alt=\"?\" title=\"help\"></td>\n"
 		"	</tr>\n"
 		"      </table>\n"
@@ -577,6 +685,7 @@ CANVAS_linetype(int linetype)
 	"rgb(214,000,120)", /* mulberry*/
 	"rgb(171,214,000)", /* green yellow*/
     };
+
     if (linetype == canvas_line_type)
 	return;
     canvas_line_type = linetype;
@@ -590,6 +699,12 @@ CANVAS_linetype(int linetype)
     if (strcmp(canvas_state.color, canvas_state.previous_color)) {
 	fprintf(gpoutfile, "ctx.strokeStyle = \"%s\";\n", canvas_state.color);
 	strcpy(canvas_state.previous_color, canvas_state.color);
+    }
+    if (canvas_dashed) {
+	if (0 < linetype && linetype < 5)
+	    fprintf(gpoutfile, "DT(gnuplot.dashpattern%1d);\n",linetype+1);
+	else
+	    fprintf(gpoutfile, "DT(gnuplot.solid);\n");
     }
 }
 
@@ -652,6 +767,10 @@ CANVAS_point(unsigned int x, unsigned int y, int number)
     double width  = CANVAS_ps * 0.6 * CANVASHTIC / CANVAS_OVERSAMPLE;
     int pt = number % 9;
 
+    /* Skip size 0 points;  the alternative would be to draw a Dot instead */
+    if (width <= 0 && pt >= 0)
+	return;
+
     CANVAS_finish();
 
     switch (pt) {
@@ -708,11 +827,11 @@ CANVAS_put_text(unsigned int x, unsigned int y, const char *str)
 	fprintf(gpoutfile,
 		"TR(%d,%d,%d,%.1f,\"%s\",\"",
 		    x, (int)(canvas_ymax + 5*CANVAS_OVERSAMPLE - y),
-		    canvas_text_angle, canvas_font_size, canvas_justify);
+		    canvas_text_angle, canvas_font_size * canvas_fontscale, canvas_justify);
     } else {
 	fprintf(gpoutfile, "T(%d,%d,%.1f,\"%s\",\"",
-		x, (int)(canvas_ymax + 5*CANVAS_OVERSAMPLE - y), canvas_font_size,
-		canvas_justify);
+		x, (int)(canvas_ymax + 5*CANVAS_OVERSAMPLE - y),
+		canvas_font_size * canvas_fontscale, canvas_justify);
     }
 
     /* Sanitize string by escaping quote characters */
@@ -869,7 +988,7 @@ TERM_PUBLIC void
 CANVAS_layer(t_termlayer layer)
 {
 	if (layer == TERM_LAYER_BEGIN_GRID) {
-	    fprintf(gpoutfile, "if (grid_lines) {\n"
+	    fprintf(gpoutfile, "if (gnuplot.grid_lines) {\n"
 			"var saveWidth = ctx.lineWidth;\n"
 			"ctx.lineWidth = ctx.lineWidth * 0.5;\n");
 	} else if (layer == TERM_LAYER_END_GRID) {
@@ -988,7 +1107,7 @@ ENHCANVAS_FLUSH()
 	w = utf8strlen(enhanced_text) * CANVAS_OVERSAMPLE * ENHCANVAS_fontsize/25.;
 
 	canvas_font_size = ENHCANVAS_fontsize;
-	x -= sin((double)canvas_text_angle * M_PI_2/90.) * ENHCANVAS_base;
+	x += sin((double)canvas_text_angle * M_PI_2/90.) * ENHCANVAS_base;
 	y += cos((double)canvas_text_angle * M_PI_2/90.) * ENHCANVAS_base;
 	if (ENHCANVAS_show && !ENHCANVAS_sizeonly)
 		CANVAS_put_text(x, y, enhanced_text);
@@ -1078,7 +1197,7 @@ TERM_TABLE_START(canvas_driver)
     CANVAS_justify_text, CANVAS_point, do_arrow, 
     set_font_null,
     CANVAS_pointsize,
-    TERM_CAN_MULTIPLOT|TERM_ALPHA_CHANNEL,
+    TERM_CAN_MULTIPLOT|TERM_ALPHA_CHANNEL|TERM_LINEWIDTH|TERM_CAN_DASH,
     NULL, NULL, CANVAS_fillbox, CANVAS_linewidth
 #ifdef USE_MOUSE
     , NULL, NULL, NULL, NULL, NULL
@@ -1104,11 +1223,12 @@ START_HELP(canvas)
 "?set term canvas",
 "?terminal canvas",
 "?term canvas",
-" NB: The canvas terminal is EXPERIMENTAL, and may change before release.",
 "",
 " Syntax:",
 "       set terminal canvas {size <xsize>, <ysize>} {fsize <fontsize>}",
 "                           {{no}enhanced} {linewidth <lw>}",
+"                           {rounded | butt}",
+"                           {solid | dashed {dashlength <dl>}}",
 "                           {standalone {mousing} | name '<funcname>'}",
 "                           {jsdir 'URL/for/javascripts'}",
 "                           {title '<some string>'}",
@@ -1123,6 +1243,7 @@ START_HELP(canvas)
 " The default `standalone` mode creates an html page containing javascript",
 " code that renders the plot using the HTML 5 canvas element.  The html page",
 " links to two required javascript files 'canvastext.js' and 'gnuplot_common.js'.",
+" An additional file 'gnuplot_dashedlines.js' is needed to support dashed lines.",
 " By default these point to local files, on unix-like systems usually in",
 " directory /usr/local/share/gnuplot/<version>/js.  See installation notes for",
 " other platforms. You can change this by using the `jsdir` option to specify",

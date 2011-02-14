@@ -1,5 +1,5 @@
 /*
- * $Id: syscfg.h,v 1.36 2008/09/10 18:12:34 sfeam Exp $
+ * $Id: syscfg.h,v 1.44 2010/12/14 22:57:05 broeker Exp $
  */
 
 /* GNUPLOT - syscfg.h */
@@ -61,36 +61,6 @@
  *
  */
 
-#if defined(AMIGA_SC_6_1) || defined(AMIGA_AC_5) || defined(__amigaos__)
-# ifndef __amigaos__
-#  define OS "Amiga"
-#  define HELPFILE "S:gnuplot.gih"
-#  define HOME     "GNUPLOT"
-#  define SHELL    "NewShell"
-#  define DIRSEP2  ':'
-#  define PATHSEP  ';'
-# endif
-# ifndef AMIGA
-#  define AMIGA
-# endif
-/* Fake S_IFIFO for SAS/C
- * See stdfn.h for details
- */
-# ifdef AMIGA_SC_6_1
-#  define S_IFIFO S_IREAD
-# endif
-#endif /* Amiga */
-
-#ifdef DOS386
-# define OS       "DOS 386"
-# define HELPFILE "gnuplot.gih"
-# define HOME     "GNUPLOT"
-# define PLOTRC   "gnuplot.ini"
-# define SHELL    "\\command.com"
-# define DIRSEP1  '\\'
-# define PATHSEP  ';'
-#endif /* DOS386 */
-
 #if defined(__NeXT__) || defined(NEXT)
 # ifndef NEXT
 #  define NEXT
@@ -107,11 +77,6 @@
 # define PATHSEP  ';'
 # define GNUPLOT_HISTORY_FILE "~\\gnuplot_history"
 #endif /* OS/2 */
-
-#ifdef OSK
-# define OS    "OS-9"
-# define SHELL "/dd/cmds/shell"
-#endif /* OS-9 */
 
 #if defined(vms) || defined(VMS)
 # define OS "VMS"
@@ -146,11 +111,6 @@
  * See stdfn.h
  */
 #  define S_IFIFO  _S_IFIFO
-# else
-#  define OS "MS-Windows"
-#  ifndef WIN16
-#   define WIN16
-#  endif
 # endif /* WIN32 */
 # define HOME    "GNUPLOT"
 # define PLOTRC  "gnuplot.ini"
@@ -161,9 +121,6 @@
 #endif /* _WINDOWS */
 
 #if defined(MSDOS) && !defined(_Windows)
-# if !defined(DOS32) && !defined(DOS16)
-#  define DOS16
-# endif
 /* should this be here ? */
 # define OS       "MS-DOS"
 # undef HELPFILE
@@ -236,7 +193,7 @@
 #endif
 
 /* DOS/Windows stuff. Moved here from command.c */
-#if defined(MSDOS) || defined(DOS386)
+#if defined(MSDOS)
 
 # ifdef DJGPP
 #  include <dos.h>
@@ -280,16 +237,13 @@
 # define GP_EXCEPTION_NAME _exception
 #endif
 
-
-/* Misc platforms */
-#ifdef apollo
-# ifndef APOLLO
-#  define APOLLO
-# endif
-# define GPR
+#ifdef __MSC__
+# include <direct.h> /* for getcwd() */
 #endif
 
-#if defined(APOLLO) || defined(alliant)
+
+
+#if defined(alliant)
 # undef HAVE_LIMITS_H
 #endif
 
@@ -308,27 +262,18 @@
  * so it belongs here, IMHO */
 
 /* To access curves larger than 64k, MSDOS needs to use huge pointers */
-#if (defined(__TURBOC__) && defined(MSDOS)) || defined(WIN16)
+#if (defined(__TURBOC__) && defined(MSDOS))
 # define GPHUGE huge
 # define GPFAR far
-#else /* not TurboC || WIN16 */
+#else /* not TurboC */
 # define GPHUGE /* nothing */
 # define GPFAR /* nothing */
-#endif /* not TurboC || WIN16 */
+#endif /* not TurboC */
 
-#if defined(DOS16) || defined(WIN16)
-typedef float coordval;		/* memory is tight on PCs! */
-# define COORDVAL_FLOAT 1
-#else
 typedef double coordval;
-#endif
 
 /* Set max. number of arguments in a user-defined function */
-#ifdef DOS16
-# define MAX_NUM_VAR	3
-#else
 # define MAX_NUM_VAR	12
-#endif
 
 /* HBB 20010223: Moved VERYLARGE definition to stdfn.h: it can only be
  * resolved correctly after #include <float.h>, which is done there,
@@ -433,6 +378,11 @@ typedef unsigned char _Bool;
 # define false 0
 # define true 1
 # define __bool_true_false_are_defined 1
+#endif
+
+/* May or may not fix a problem reported for Sun Studio compilers */
+#if defined(__SUNPRO_CC) && !defined __cplusplus && !defined(bool)
+#define bool unsigned char
 #endif
 
 #undef TRUE

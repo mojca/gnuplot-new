@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: misc.c,v 1.109 2009/06/06 18:28:43 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: misc.c,v 1.129 2011/02/10 21:27:43 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - misc.c */
@@ -55,6 +55,8 @@ static char *RCSid() { return RCSid("$Id: misc.c,v 1.109 2009/06/06 18:28:43 sfe
 
 static void arrow_use_properties __PROTO((struct arrow_style_type *arrow, int tag));
 static char *recursivefullname __PROTO((const char *path, const char *filename, TBOOLEAN recursive));
+static void prepare_call __PROTO((void));
+static void expand_call_args __PROTO((void));
 
 /* A copy of the declaration from set.c */
 /* There should only be one declaration in a header file. But I do not know
@@ -69,6 +71,7 @@ LFS *lf_head = NULL;		/* NULL if not in load_file */
 /* these two could be in load_file, except for error recovery */
 static TBOOLEAN do_load_arg_substitution = FALSE;
 static char *call_args[10] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+static int call_argc;
 
 /*
  * iso_alloc() allocates a iso_curve structure that can hold 'num'
@@ -99,15 +102,6 @@ iso_extend(struct iso_curve *ip, int num)
 {
     if (num == ip->p_max)
 	return;
-
-#if defined(DOS16) || defined(WIN16)
-    /* Make sure we do not allocate more than 64k points in msdos since
-       * indexing is done with 16-bit int
-       * Leave some bytes for malloc maintainance.
-     */
-    if (num > 32700)
-	int_error(NO_CARET, "Array index must be less than 32k in msdos");
-#endif /* 16bit (Win)Doze */
 
     if (num > 0) {
 	if (ip->points == NULL) {
@@ -140,6 +134,76 @@ iso_free(struct iso_curve *ip)
     }
 }
 
+static void
+prepare_call(void)
+{
+    call_argc = 0;
+    /* Gnuplot "call" command can have up to 10 arguments "$0" to "$9" */
+    while (!END_OF_COMMAND && call_argc <= 9) {
+	if (isstring(c_token))
+	    m_quote_capture(&call_args[call_argc++], c_token, c_token);
+	else
+	    m_capture(&call_args[call_argc++], c_token, c_token);
+	c_token++;
+    }
+    if (!END_OF_COMMAND)
+	int_error(++c_token, "too many arguments for 'call <file>'");
+}
+
+
+const char *
+expand_call_arg(int c)
+{
+    static char numstr[3];
+    if (c == '$') {
+	return "$";
+    } else if (c == '#') {
+	assert(call_argc >= 0 && call_argc <= 9);
+	sprintf(numstr, "%i", call_argc);
+	return numstr;
+    } else if (c >= '0' && c <= '9') {
+	int ind = c - '0';
+	if (ind >= call_argc)
+	    return "";
+	else
+	    return call_args[ind];
+    } else
+	int_error(NO_CARET, "Invalid substitution $%c", c);
+    return NULL; /* Avoid compiler warning */
+}
+
+
+static void
+expand_call_args(void)
+{
+    int il = 0;
+    int len;
+    char *rl;
+    char *raw_line = gp_strdup(gp_input_line);
+
+    rl = raw_line;
+    *gp_input_line = '\0';
+    while (*rl) {
+	if (*rl == '$') {
+	    const char *sub = expand_call_arg(*(++rl));
+	    len = strlen(sub);
+	    while (gp_input_line_len - il < len + 1)
+		extend_input_line();
+	    strcpy(gp_input_line + il, sub);
+	    il += len;
+	} else {
+	    if (il + 1 > gp_input_line_len)
+		extend_input_line();
+	    gp_input_line[il++] = *rl;
+	}
+	rl++;
+    }
+    if (il + 1 > gp_input_line_len)
+	extend_input_line();
+    gp_input_line[il] = '\0';
+    free(raw_line);
+}
+
 void
 load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
 {
@@ -149,7 +213,7 @@ load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
     int more;
     int stop = FALSE;
 
-    lf_push(fp);		/* save state for errors and recursion */
+    lf_push(fp, name, NULL); /* save state for errors and recursion */
     do_load_arg_substitution = can_do_args;
 
     if (fp == (FILE *) NULL) {
@@ -160,39 +224,23 @@ load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
 	interactive = TRUE;
 	while (!com_line());
     } else {
+	call_argc = 0;
+	if (can_do_args) {
+	    prepare_call();
+	    lf_head->c_token = c_token; /* update after prepare_call() */
+	}
+	/* things to do after lf_push */
+	inline_num = 0;
 	/* go into non-interactive mode during load */
 	/* will be undone below, or in load_file_error */
-	int argc = 0; /* number arguments passed by "call" */
 	interactive = FALSE;
-	inline_num = 0;
-	lf_head->name = name;
 
-	if (can_do_args) {
-	    /* Gnuplot "call" command can have up to 10 arguments "$0" to "$9" */
-	    while (!END_OF_COMMAND && argc <= 9) {
-		if (isstring(c_token))
-		    m_quote_capture(&call_args[argc++], c_token, c_token);
-		else
-		    m_capture(&call_args[argc++], c_token, c_token);
-		c_token++;
-	    }
-	    if (!END_OF_COMMAND)
-		int_error(++c_token, "too many arguments for 'call <file>'");
-	}
-
-	/* These were initialized to NULL in lf_push(); will be freed in lf_pop() */
-	lf_head->c_token = c_token;
-	lf_head->num_tokens = num_tokens;
-	lf_head->tokens = gp_alloc(num_tokens * sizeof(struct lexical_unit), "lf tokens");
-	memcpy(lf_head->tokens, token, num_tokens * sizeof(struct lexical_unit));
-	lf_head->input_line = gp_strdup(gp_input_line);
-	
-	while (!stop) {		/* read all commands in file */
-	    /* read one command */
+	while (!stop) {	/* read all lines in file */
 	    left = gp_input_line_len;
 	    start = 0;
 	    more = TRUE;
 
+	    /* read one logical line */
 	    while (more) {
 		if (fgets(&(gp_input_line[start]), left, fp) == (char *) NULL) {
 		    stop = TRUE;	/* EOF in file */
@@ -226,52 +274,11 @@ load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
 		}
 	    }
 
+	    /* process line */
 	    if (strlen(gp_input_line) > 0) {
-		if (can_do_args) {
-		    int il = 0;
-		    char *rl;
-		    char *raw_line = gp_strdup(gp_input_line);
+		if (can_do_args)
+		  expand_call_args();
 
-		    rl = raw_line;
-		    *gp_input_line = '\0';
-		    while (*rl) {
-			int aix;
-			if (*rl == '$'
-			    && ((aix = *(++rl)) != 0)	/* HBB 980308: quiet BCC warning */
-			    && ((aix >= '0' && aix <= '9') || aix == '#')) {
-			    if (aix == '#') {
-				/* replace $# by number of passed arguments */
-				len = argc < 10 ? 1 : 2; /* argc can be 0 .. 10 */
-				while (gp_input_line_len - il < len + 1) {
-				    extend_input_line();
-				}
-				sprintf(gp_input_line + il, "%i", argc);
-				il += len;
-			    } else
-			    if (call_args[aix -= '0']) {
-				/* replace $n for n=0..9 by the passed argument */
-				len = strlen(call_args[aix]);
-				while (gp_input_line_len - il < len + 1) {
-				    extend_input_line();
-				}
-				strcpy(gp_input_line + il, call_args[aix]);
-				il += len;
-			    }
-			} else {
-			    /* substitute for $<n> here */
-			    if (il + 1 > gp_input_line_len) {
-				extend_input_line();
-			    }
-			    gp_input_line[il++] = *rl;
-			}
-			rl++;
-		    }
-		    if (il + 1 > gp_input_line_len) {
-			extend_input_line();
-		    }
-		    gp_input_line[il] = '\0';
-		    free(raw_line);
-		}
 		screen_ok = FALSE;	/* make sure command line is
 					   echoed on error */
 		if (do_line())
@@ -312,23 +319,27 @@ lf_pop()
 	do_load_arg_substitution = lf->do_load_arg_substitution;
 	interactive = lf->interactive;
 	inline_num = lf->inline_num;
+	if_depth = lf->if_depth;
+	if_condition = lf->if_condition;
 
 	/* Restore saved input state and free the copy */
 	if (lf->tokens) {
 	    num_tokens = lf->num_tokens;
 	    c_token = lf->c_token;
-	    memcpy(token, lf->tokens, lf->num_tokens * sizeof(struct lexical_unit));
+	    assert(token_table_size >= lf->num_tokens+1);
+	    memcpy(token, lf->tokens,
+		   (lf->num_tokens+1) * sizeof(struct lexical_unit));
 	    free(lf->tokens);
 	}
 	if (lf->input_line) {
 	    strcpy(gp_input_line, lf->input_line);
 	    free(lf->input_line);
 	}
-	if (lf->name)
-	    free(lf->name);
+	free(lf->name);
+	free(lf->cmdline);
 	
 	lf_head = lf->prev;
-	free((char *) lf);
+	free(lf);
 	return (TRUE);
     }
 }
@@ -337,7 +348,7 @@ lf_pop()
    essentially, we save information needed to undo the load_file changes
    called by load_file */
 void
-lf_push(FILE *fp)
+lf_push(FILE *fp, char *name, char *cmdline)
 {
     LFS *lf;
     int argindex;
@@ -349,6 +360,9 @@ lf_push(FILE *fp)
 	int_error(c_token, "not enough memory to load file");
     }
     lf->fp = fp;		/* save this file pointer */
+    lf->name = name;
+    lf->cmdline = cmdline;
+
     lf->interactive = interactive;	/* save current state */
     lf->inline_num = inline_num;	/* save current line number */
     lf->do_load_arg_substitution = do_load_arg_substitution;
@@ -357,13 +371,29 @@ lf_push(FILE *fp)
 	call_args[argindex] = NULL;	/* initially no args */
     }
     lf->depth = lf_head ? lf_head->depth+1 : 0;	/* recursion depth */
-    lf->c_token = c_token;	/* Will be updated by caller */
-    lf->num_tokens = num_tokens;/* Will be updated by caller */
-    lf->input_line = NULL;	/* Will be filled in by caller */
-    lf->tokens = NULL;		/* Will be filled in by caller */
-    lf->name = NULL;		/* Will be filled in by caller */
+    if (lf->depth > 1024)
+	int_error(NO_CARET, "Deep load/eval recursion detected");
+    lf->if_depth = if_depth;
+    lf->if_condition = if_condition;
+    lf->c_token = c_token;
+    lf->num_tokens = num_tokens;
+    lf->tokens = gp_alloc((num_tokens+1) * sizeof(struct lexical_unit),
+			  "lf tokens");
+    memcpy(lf->tokens, token, (num_tokens+1) * sizeof(struct lexical_unit));
+    lf->input_line = gp_strdup(gp_input_line);
+
     lf->prev = lf_head;		/* link to stack */
     lf_head = lf;
+
+    /* Check for recursion (Is this too strict?) */
+    if (cmdline) {
+	while ((lf = lf->prev) != NULL) {
+	    if (lf->cmdline && !strcmp(cmdline, lf->cmdline))
+		int_error(NO_CARET,
+			  "probably infinite load/eval recursion at \"%s\"",
+			  cmdline);
+	}
+    }
 }
 
 /* used for reread  vsnyder@math.jpl.nasa.gov */
@@ -604,7 +634,7 @@ pop_terminal()
 	i = interactive;
 	interactive = 0;
 	sprintf(s,"set term %s %s", push_term_name, (push_term_opts ? push_term_opts : ""));
-	do_string(s, TRUE);
+	do_string_and_free(s);
 	interactive = i;
 	if (interactive)
 	    fprintf(stderr,"   restored terminal is %s %s\n", term->name, ((*term_options) ? term_options : ""));
@@ -613,8 +643,7 @@ pop_terminal()
 }
 
 
-/* Parse a plot style. Used by 'set style {data|function}' and by
- * (s)plot.  */
+/* Parse a plot style. Used by 'set style {data|function}' and by (s)plot.  */
 enum PLOT_STYLE
 get_style()
 {
@@ -627,17 +656,8 @@ get_style()
 
     c_token++;
 
-    if (ps == -1) {
-	int_error(c_token, "\
-expecting 'lines', 'points', 'linespoints', 'dots', 'impulses',\n\
-\t'yerrorbars', 'xerrorbars', 'xyerrorbars', 'steps', 'fsteps',\n\
-\t'histeps', 'filledcurves', 'boxes', 'boxerrorbars', 'boxxyerrorbars',\n\
-\t'vectors', 'financebars', 'candlesticks', 'errorlines', 'xerrorlines',\n\
-\t'yerrorlines', 'xyerrorlines', 'pm3d', 'labels', 'histograms'"
-",\n\t 'image', 'rgbimage'"
-);
-	ps = LINES;
-    }
+    if (ps == -1)
+	int_error(c_token, "unrecognized plot type");
 
     return ps;
 }
@@ -669,10 +689,11 @@ get_filledcurves_style_options(filledcurves_opts *fco)
     c_token++;
 
     fco->closeto = p;
+    fco->at = 0;
     if (!equals(c_token, "="))
 	return;
     /* parameter required for filledcurves x1=... and friends */
-    if (p != FILLEDCURVES_ATXY)
+    if (p < FILLEDCURVES_ATXY)
 	fco->closeto += 4;
     c_token++;
     fco->at = real_expression();
@@ -717,13 +738,19 @@ filledcurves_options_tofile(filledcurves_opts *fco, FILE *fp)
 TBOOLEAN
 need_fill_border(struct fill_style_type *fillstyle)
 {
-    /* Doesn't want a border at all */
-    if (fillstyle->border_color.type == TC_LT && fillstyle->border_color.lt == LT_NODRAW)
-	return FALSE;
+    struct lp_style_type p;
+    p.pm3d_color = fillstyle->border_color;
+
+    if (p.pm3d_color.type == TC_LT) {
+	/* Doesn't want a border at all */
+	if (p.pm3d_color.lt == LT_NODRAW)
+	    return FALSE;
+	load_linetype(&p, p.pm3d_color.lt+1);
+    }
 
     /* Wants a border in a new color */
-    if (fillstyle->border_color.type != TC_DEFAULT)
-	apply_pm3dcolor(&fillstyle->border_color,term);
+    if (p.pm3d_color.type != TC_DEFAULT)
+	apply_pm3dcolor(&p.pm3d_color,term);
     
     return TRUE;
 }
@@ -732,15 +759,20 @@ need_fill_border(struct fill_style_type *fillstyle)
  * allow_ls controls whether we are allowed to accept linestyle in
  * the current context [ie not when doing a  set linestyle command]
  * allow_point is whether we accept a point command
- * allow any order of options - pm 24.11.2001
- * EAM Oct 2005 - Require that default values have been placed in lp by the caller
  */
 void
 lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 {
-	/* avoid duplicating options */
-	int set_lt = 0, set_pal = 0, set_lw = 0, set_pt = 0, set_ps = 0;
+    /* keep track of which options were set during this call */
+    int set_lt = 0, set_pal = 0, set_lw = 0, set_pt = 0, set_ps = 0, set_pi = 0;
 
+    /* EAM Mar 2010 - We don't want properties from a user-defined default
+     * linetype to override properties explicitly set here.  So fill in a
+     * local lp_style_type as we go and then copy over the specifically
+     * requested properties on top of the default ones.                                           
+     */
+    struct lp_style_type newlp = *lp;
+	
 	if (allow_ls &&
 	    (almost_equals(c_token, "lines$tyle") || equals(c_token, "ls"))) {
 	    c_token++;
@@ -756,27 +788,28 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		    if (set_pal++)
 			break;
 		    c_token--;
-		    parse_colorspec(&lp->pm3d_color, TC_RGB);
-		    lp->use_palette = 1;
+		    parse_colorspec(&(newlp.pm3d_color), TC_RGB);
+		    newlp.use_palette = 1;
 		} else
 		/* both syntaxes allowed: 'with lt pal' as well as 'with pal' */
 		if (almost_equals(c_token, "pal$ette")) {
 		    if (set_pal++)
 			break;
 		    c_token--;
-		    parse_colorspec(&lp->pm3d_color, TC_Z);
-		    lp->use_palette = 1;
-#ifdef KEYWORD_BGND
+		    parse_colorspec(&(newlp.pm3d_color), TC_Z);
+		    newlp.use_palette = 1;
 		} else if (equals(c_token,"bgnd")) {
-		    lp->l_type = LT_BACKGROUND;
+		    *lp = background_lp;
 		    c_token++;
-#endif
 		} else {
+		    /* These replace the base style */
 		    int lt = int_expression();
 		    lp->l_type = lt - 1;
 		    /* user may prefer explicit line styles */
 		    if (prefer_line_styles && allow_ls)
 			lp_use_properties(lp, lt);
+		    else
+			load_linetype(lp, lt);
 		}
 	    } /* linetype, lt */
 
@@ -785,35 +818,41 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		if (set_pal++)
 		    break;
 		c_token--;
-		parse_colorspec(&lp->pm3d_color, TC_Z);
-		lp->use_palette = 1;
+		parse_colorspec(&(newlp.pm3d_color), TC_Z);
+		newlp.use_palette = 1;
 		continue;
 	    }
 
 	    if (equals(c_token,"lc") || almost_equals(c_token,"linec$olor")) {
-		lp->use_palette = 1;
+		newlp.use_palette = 1;
 		if (set_pal++)
 		    break;
 		c_token++;
 		if (almost_equals(c_token, "rgb$color")) {
 		    c_token--;
-		    parse_colorspec(&lp->pm3d_color, TC_RGB);
+		    parse_colorspec(&(newlp.pm3d_color), TC_RGB);
 		} else if (almost_equals(c_token, "pal$ette")) {
 		    c_token--;
-		    parse_colorspec(&lp->pm3d_color, TC_Z);
-#ifdef KEYWORD_BGND
+		    parse_colorspec(&(newlp.pm3d_color), TC_Z);
 		} else if (equals(c_token,"bgnd")) {
-		    lp->pm3d_color.type = TC_LT;
-		    lp->pm3d_color.lt = LT_BACKGROUND;
+		    newlp.pm3d_color.type = TC_LT;
+		    newlp.pm3d_color.lt = LT_BACKGROUND;
 		    c_token++;
-#endif
 		} else if (almost_equals(c_token, "var$iable")) {
 		    c_token++;
-		    lp->l_type = LT_COLORFROMCOLUMN;
-		    lp->pm3d_color.type = TC_LINESTYLE;
+		    newlp.l_type = LT_COLORFROMCOLUMN;
+		    newlp.pm3d_color.type = TC_LINESTYLE;
 		} else {
-		    lp->pm3d_color.type = TC_LT;
-		    lp->pm3d_color.lt = int_expression() - 1;
+		    /* Pull the line colour from a default linetype, but */
+		    /* only if we are not in the middle of defining one! */
+		    if (allow_ls) {
+			struct lp_style_type temp;
+			load_linetype(&temp, int_expression());
+			newlp.pm3d_color = temp.pm3d_color;
+		    } else {
+			newlp.pm3d_color.type = TC_LT;
+			newlp.pm3d_color.lt = int_expression() - 1;
+		    }
 		}
 		continue;
 	    }
@@ -822,16 +861,17 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		if (set_lw++)
 		    break;
 		c_token++;
-		lp->l_width = real_expression();
-		if (lp->l_width < 0)
-		    lp->l_width = 0;
+		newlp.l_width = real_expression();
+		if (newlp.l_width < 0)
+		    newlp.l_width = 0;
 		continue;
 	    }
 
 	    if (equals(c_token,"bgnd")) {
-		lp->l_type = LT_BACKGROUND;
-		lp->use_palette = 0;
+		if (set_lt++)
+		    break;;
 		c_token++;
+		*lp = background_lp;
 		continue;
 	    }
 
@@ -840,7 +880,7 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		    if (set_pt++)
 			break;
 		    c_token++;
-		    lp->p_type = int_expression() - 1;
+		    newlp.p_type = int_expression() - 1;
 		} else {
 		    int_warn(c_token, "No pointtype specifier allowed, here");
 		    c_token += 2;
@@ -854,15 +894,15 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 			break;
 		    c_token++;
 		    if (almost_equals(c_token, "var$iable")) {
-			lp->p_size = PTSZ_VARIABLE;
+			newlp.p_size = PTSZ_VARIABLE;
 			c_token++;
 		    } else if (almost_equals(c_token, "def$ault")) {
-			lp->p_size = PTSZ_DEFAULT;
+			newlp.p_size = PTSZ_DEFAULT;
 			c_token++;
 		    } else {
-			lp->p_size = real_expression();
-			if (lp->p_size < 0)
-			    lp->p_size = 0;
+			newlp.p_size = real_expression();
+			if (newlp.p_size < 0)
+			    newlp.p_size = 0;
 		    }
 		} else {
 		    int_warn(c_token, "No pointsize specifier allowed, here");
@@ -874,7 +914,8 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 	    if (almost_equals(c_token, "pointi$nterval") || equals(c_token, "pi")) {
 		c_token++;
 		if (allow_point) {
-		    lp->p_interval = int_expression();
+		    newlp.p_interval = int_expression();
+		    set_pi = 1;
 		} else {
 		    int_warn(c_token, "No pointinterval specifier allowed, here");
 		    int_expression();
@@ -883,12 +924,27 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 	    }
 
 
-	    /* unknown option catched -> quit the while(1) loop */
+	    /* caught unknown option -> quit the while(1) loop */
 	    break;
 	}
 
 	if (set_lt > 1 || set_pal > 1 || set_lw > 1 || set_pt > 1 || set_ps > 1)
 	    int_error(c_token, "duplicated arguments in style specification");
+
+	if (set_pal) {
+	    lp->pm3d_color = newlp.pm3d_color;
+	    lp->use_palette = newlp.use_palette;
+	}
+	if (set_lw)
+	    lp->l_width = newlp.l_width;
+	if (set_pt)
+	    lp->p_type = newlp.p_type;
+	if (set_ps)
+	    lp->p_size = newlp.p_size;
+	if (set_pi)
+	    lp->p_interval = newlp.p_interval;
+	if (newlp.l_type == LT_COLORFROMCOLUMN)
+	    lp->l_type = LT_COLORFROMCOLUMN;
 }
 
 /* <fillstyle> = {empty | solid {<density>} | pattern {<n>}} {noborder | border {<lt>}} */
@@ -939,7 +995,10 @@ parse_fillstyle(struct fill_style_type *fs, int def_style, int def_density, int 
 	    if (equals(c_token,"-") || isanumber(c_token)) {
 		fs->border_color.type = TC_LT;
 		fs->border_color.lt = int_expression() - 1;
-	    } else if (!END_OF_COMMAND) {
+	    } else if (equals(c_token,"lc") || almost_equals(c_token,"linec$olor")) {
+		parse_colorspec(&fs->border_color, TC_Z);
+	    } else if (equals(c_token,"rgb")
+		   ||  equals(c_token,"lt") || almost_equals(c_token,"linet$ype")) {
 		c_token--;
 		parse_colorspec(&fs->border_color, TC_Z);
 	    }
@@ -978,7 +1037,7 @@ parse_fillstyle(struct fill_style_type *fs, int def_style, int def_density, int 
  * Parse the sub-options of text color specification
  *   { def$ault | lt <linetype> | pal$ette { cb <val> | frac$tion <val> | z }
  * The ordering of alternatives shown in the line above is kept in the symbol definitions
- * TC_DEFAULT TC_LT TC_RGB TC_CB TC_FRAC TC_Z  (0 1 2 3 4 5)
+ * TC_DEFAULT TC_LT TC_LINESTYLE TC_RGB TC_CB TC_FRAC TC_Z TC_VARIABLE (0 1 2 3 4 5 6 7)
  * and the "options" parameter to parse_colorspec limits legal input to the
  * corresponding point in the series. So TC_LT allows only default or linetype
  * coloring, while TC_Z allows all coloring options up to and including pal z
@@ -992,12 +1051,10 @@ parse_colorspec(struct t_colorspec *tc, int options)
     if (almost_equals(c_token,"def$ault")) {
 	c_token++;
 	tc->type = TC_DEFAULT;
-#ifdef KEYWORD_BGND
     } else if (equals(c_token,"bgnd")) {
 	c_token++;
 	tc->type = TC_LT;
 	tc->lt = LT_BACKGROUND;
-#endif
     } else if (equals(c_token,"lt")) {
 	c_token++;
 	if (END_OF_COMMAND)
@@ -1023,20 +1080,10 @@ parse_colorspec(struct t_colorspec *tc, int options)
 	if (almost_equals(c_token, "var$iable")) {
 	    tc->value = -1.0;
 	    c_token++;
-	    return;
-	} else
+	} else {
 	    tc->value = 0.0;
-	if (!(color = try_to_get_string()))
-	    int_error(c_token, "expected a color name or a string of form \"#RRGGBB\"");
-	if ((rgbtriple = lookup_table_nth(pm3d_color_names_tbl, color)) >= 0)
-	    rgbtriple = pm3d_color_names_tbl[rgbtriple].value;
-	else
-	    sscanf(color,"#%x",&rgbtriple);
-	free(color);
-	if (rgbtriple < 0)
-	    int_error(c_token, "expected a known color name or a string of form \"#RRGGBB\"");
-	tc->type = TC_RGB;
-	tc->lt = rgbtriple;
+	    tc->lt = parse_color_name();
+	}
     } else if (almost_equals(c_token,"pal$ette")) {
 	c_token++;
 	if (equals(c_token,"z")) {
@@ -1067,9 +1114,33 @@ parse_colorspec(struct t_colorspec *tc, int options)
 	    if (options >= TC_Z)
 		tc->type = TC_Z;
 	}
+    } else if (options >= TC_VARIABLE && almost_equals(c_token,"var$iable")) {
+	tc->type = TC_VARIABLE;
+	c_token++;
     } else {
 	int_error(c_token, "colorspec option not recognized");
     }
+}
+
+long
+parse_color_name()
+{
+    char *string;
+    int index;
+    int color = -1;
+
+    if ((string = try_to_get_string())) {
+	color = lookup_table_nth(pm3d_color_names_tbl, string);
+	if (color >= 0)
+	    color = pm3d_color_names_tbl[color].value;
+	else
+	    sscanf(string,"#%x",&color);
+	free(string);
+    }
+    if ((color & 0xff000000) != 0)
+	int_error(c_token, "not recognized as a color name or a string of form \"#RRGGBB\"");
+
+    return color;
 }
 
 /* arrow parsing...
@@ -1179,7 +1250,7 @@ arrow_parse(
 		arrow->head_lengthunit = hsize.scalex;
 		arrow->head_angle = hsize.y;
 		arrow->head_backangle = hsize.z;
-		/* invalid backangle --> default of 90.0° */
+		/* invalid backangle --> default of 90.0 degrees */
 		if (arrow->head_backangle <= arrow->head_angle)
 		    arrow->head_backangle = 90.0;
 		continue;

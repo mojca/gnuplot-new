@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: tables.c,v 1.92 2009/03/26 00:49:17 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: tables.c,v 1.105 2010/12/05 00:01:02 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - tables.c */
@@ -42,6 +42,7 @@ static char *RCSid() { return RCSid("$Id: tables.c,v 1.92 2009/03/26 00:49:17 sf
 #include "term_api.h"
 #include "util.h"
 #include "alloc.h"	/* for init_colornames() */
+#include "graph3d.h"	/* for DGRID3D_* options */
 # include "getcolor.h"
 
 /* gnuplot commands */
@@ -93,33 +94,6 @@ const struct gen_ftable command_ftbl[] =
     { NULL, invalid_command }
 };
 
-/* 'plot' and 'splot' */
-/* HBB 990829: unused, yet? */
-/* Lars 991108: yes, because the 'plot' parser is a real bitch :( */
-/* pm 011129: ...and therefore I'm putting it into #if 0 ... #endif.
- * Anyway, this table can't be used as below because some options
- * belong to the group of data file options and others to the group
- * of plot options
- */
-#if 0
-const struct gen_table plot_tbl[] =
-{
-    { "ax$es", P_AXES },
-    { "ax$is", P_AXES },
-    { "bin$ary", P_BINARY },
-    { "ev$ery", P_EVERY },
-    { "i$ndex", P_INDEX },
-    { "mat$rix", P_MATRIX },
-    { "s$mooth", P_SMOOTH },
-    { "thru$", P_THRU },
-    { "t$itle", P_TITLE },
-    { "not$itle", P_NOTITLE },
-    { "u$sing", P_USING },
-    { "w$ith", P_WITH },
-    { NULL, P_INVALID }
-};
-#endif
-
 /* 'plot ax[ei]s' parameter */
 const struct gen_table plot_axes_tbl[] =
 {
@@ -141,7 +115,21 @@ const struct gen_table plot_smooth_tbl[] =
     { "f$requency", SMOOTH_FREQUENCY },
     { "cum$ulative", SMOOTH_CUMULATIVE },
     { "k$density", SMOOTH_KDENSITY },
+    { "cn$ormal", SMOOTH_CUMULATIVE_NORMALISED },
     { NULL, SMOOTH_NONE }
+};
+
+/* dgrid3d modes */
+const struct gen_table dgrid3d_mode_tbl[] =
+{
+    { "qnorm", DGRID3D_QNORM },
+    { "spline$s", DGRID3D_SPLINES },
+    { "gauss", DGRID3D_GAUSS },
+    { "exp", DGRID3D_EXP },
+    { "cauchy", DGRID3D_CAUCHY },
+    { "box", DGRID3D_BOX },
+    { "hann", DGRID3D_HANN },
+    { NULL, DGRID3D_OTHER }
 };
 
 /* 'save' command */
@@ -191,8 +179,10 @@ const struct gen_table set_tbl[] =
     { "k$ey", S_KEY },
     { "keyt$itle", S_KEYTITLE },
     { "la$bel", S_LABEL },
-    { "li$nestyle", S_LINESTYLE },
+    { "lines$tyle", S_LINESTYLE },
+    { "linetype$s", S_LINETYPE },
     { "ls", S_LINESTYLE },
+    { "lt", S_LINETYPE },
     { "loa$dpath", S_LOADPATH },
     { "loc$ale", S_LOCALE },
     { "log$scale", S_LOGSCALE },
@@ -235,9 +225,11 @@ const struct gen_table set_tbl[] =
     { "colorn$ames", S_COLORNAMES },
     { "colors", S_COLORNAMES },
     { "p$lot", S_PLOT },
+    { "pointint$ervalbox", S_POINTINTERVALBOX },
     { "poi$ntsize", S_POINTSIZE },
     { "pol$ar", S_POLAR },
     { "pr$int", S_PRINT },
+    { "psdir", S_PSDIR },
     { "obj$ect", S_OBJECT },
     { "sa$mples", S_SAMPLES },
     { "si$ze", S_SIZE },
@@ -281,6 +273,8 @@ const struct gen_table set_tbl[] =
     { "noy2ti$cs", S_NOY2TICS },
     { "zti$cs", S_ZTICS },
     { "nozti$cs", S_NOZTICS },
+    { "rti$cs", S_RTICS },
+    { "norti$cs", S_NORTICS },
     { "cbti$cs", S_CBTICS },
     { "nocbti$cs", S_NOCBTICS },
 
@@ -327,6 +321,7 @@ const struct gen_table set_tbl[] =
     { "y2zeroa$xis", S_Y2ZEROAXIS },
     { "zzeroa$xis", S_ZZEROAXIS },
     { "zeroa$xis", S_ZEROAXIS },
+    { "rax$is", S_RAXIS },
 
     { "z$ero", S_ZERO },
     { NULL, S_INVALID }
@@ -395,6 +390,11 @@ const struct gen_table set_key_tbl[] =
     { "font", S_KEY_FONT },
     { "tc", S_KEY_TEXTCOLOR },
     { "text$color", S_KEY_TEXTCOLOR },
+    { "maxcol$s", S_KEY_MAXCOLS},
+    { "maxcolu$mns", S_KEY_MAXCOLS},
+    { "maxrow$s", S_KEY_MAXROWS},
+    { "opaque", S_KEY_FRONT},
+    { "noopaque", S_KEY_NOFRONT},
     { NULL, S_KEY_INVALID }
 };
 
@@ -630,7 +630,10 @@ const struct gen_table show_style_tbl[] =
     { "ar$row", SHOW_STYLE_ARROW },
     { "incr$ement", SHOW_STYLE_INCREMENT },
     { "hist$ogram", SHOW_STYLE_HISTOGRAM },
+    { "circ$le", SHOW_STYLE_CIRCLE },
+    { "ell$ipse", SHOW_STYLE_ELLIPSE },
     { "rect$angle", SHOW_STYLE_RECTANGLE },
+    { "boxplot", SHOW_STYLE_BOXPLOT },
     { NULL, SHOW_STYLE_INVALID }
 };
 
@@ -661,6 +664,7 @@ const struct gen_table plotstyle_tbl[] =
     { "vec$tors", VECTOR },
     { "fin$ancebars", FINANCEBARS },
     { "can$dlesticks", CANDLESTICKS },
+    { "boxplot", BOXPLOT },
     { "pm$3d", PM3DSURFACE },
     { "labels", LABELPOINTS },
     { "ima$ge", IMAGE },
@@ -668,6 +672,7 @@ const struct gen_table plotstyle_tbl[] =
     { "rgba$lpha", RGBA_IMAGE },
 #ifdef EAM_OBJECTS
     { "cir$cles", CIRCLES },
+    { "ell$ipses", ELLIPSES },
 #endif
     { NULL, -1 }
 };
@@ -680,6 +685,7 @@ const struct gen_table filledcurves_opts_tbl[] =
     { "x2", FILLEDCURVES_X2 },
     { "y2", FILLEDCURVES_Y2 },
     { "xy", FILLEDCURVES_ATXY },
+    { "r", FILLEDCURVES_ATR },
     { "above", FILLEDCURVES_ABOVE },
     { "below", FILLEDCURVES_BELOW },
     { NULL, -1 }

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: unset.c,v 1.128 2009/04/12 22:27:04 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: unset.c,v 1.143 2011/01/16 19:15:20 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - unset.c */
@@ -41,6 +41,7 @@ static char *RCSid() { return RCSid("$Id: unset.c,v 1.128 2009/04/12 22:27:04 sf
 #include "contour.h"
 #include "datafile.h"
 #include "fit.h"
+#include "gadgets.h"
 #include "gp_hist.h"
 #include "hidden3d.h"
 #include "misc.h"
@@ -62,7 +63,7 @@ static void delete_arrow __PROTO((struct arrow_def *, struct arrow_def *));
 static void unset_autoscale __PROTO((void));
 static void unset_bars __PROTO((void));
 static void unset_border __PROTO((void));
-
+static void unset_boxplot __PROTO((void));
 static void unset_boxwidth __PROTO((void));
 static void unset_fillstyle __PROTO((void));
 static void unset_clabel __PROTO((void));
@@ -84,10 +85,14 @@ static void unset_key __PROTO((void));
 static void unset_keytitle __PROTO((void));
 static void unset_label __PROTO((void));
 static void delete_label __PROTO((struct text_label * prev, struct text_label * this));
+static void unset_linestyle __PROTO((struct linestyle_def **head));
+static void unset_linetype __PROTO((void));
 #ifdef EAM_OBJECTS
 static void unset_object __PROTO((void));
 static void delete_object __PROTO((struct object * prev, struct object * this));
 static void unset_style_rectangle __PROTO(());
+static void unset_style_circle __PROTO(());
+static void unset_style_ellipse __PROTO(());
 #endif
 static void unset_loadpath __PROTO((void));
 static void unset_locale __PROTO((void));
@@ -115,8 +120,10 @@ static void unset_palette __PROTO((void));
 static void reset_colorbox __PROTO((void));
 static void unset_colorbox __PROTO((void));
 static void unset_pointsize __PROTO((void));
+static void unset_pointintervalbox __PROTO((void));
 static void unset_polar __PROTO((void));
 static void unset_print __PROTO((void));
+static void unset_psdir __PROTO((void));
 static void unset_samples __PROTO((void));
 static void unset_size __PROTO((void));
 static void unset_style __PROTO((void));
@@ -228,6 +235,9 @@ unset_command()
     case S_LABEL:
 	unset_label();
 	break;
+    case S_LINETYPE:
+	unset_linetype();
+	break;
     case S_LOADPATH:
 	unset_loadpath();
 	break;
@@ -300,6 +310,9 @@ unset_command()
     case S_COLORBOX:
 	unset_colorbox();
 	break;
+    case S_POINTINTERVALBOX:
+	unset_pointintervalbox();
+	break;
     case S_POINTSIZE:
 	unset_pointsize();
 	break;
@@ -309,11 +322,17 @@ unset_command()
     case S_PRINT:
 	unset_print();
 	break;
+    case S_PSDIR:
+	unset_psdir();
+	break;
 #ifdef EAM_OBJECTS
     case S_OBJECT:
 	unset_object();
 	break;
 #endif
+    case S_RTICS:
+	unset_tics(POLAR_AXIS);
+	break;
     case S_SAMPLES:
 	unset_samples();
 	break;
@@ -480,7 +499,7 @@ unset_command()
 	unset_range(COLOR_AXIS);
 	break;
     case S_RRANGE:
-	unset_range(R_AXIS);
+	unset_range(POLAR_AXIS);
 	break;
     case S_TRANGE:
 	unset_range(T_AXIS);
@@ -490,6 +509,10 @@ unset_command()
 	break;
     case S_VRANGE:
 	unset_range(V_AXIS);
+	break;
+    case S_RAXIS:
+	raxis = FALSE;
+	c_token++;
 	break;
     case S_XZEROAXIS:
 	unset_zeroaxis(FIRST_X_AXIS);
@@ -603,7 +626,9 @@ static void
 unset_autoscale()
 {
     if (END_OF_COMMAND) {
-	INIT_AXIS_ARRAY(set_autoscale, FALSE);
+	int axis;
+	for (axis=0; axis<AXIS_ARRAY_SIZE; axis++)
+	    axis_array[axis].set_autoscale = FALSE;
     } else if (equals(c_token, "xy") || equals(c_token, "tyx")) {
 	axis_array[FIRST_X_AXIS].set_autoscale
 	    = axis_array[FIRST_Y_AXIS].set_autoscale = AUTOSCALE_NONE;
@@ -635,6 +660,15 @@ unset_border()
     /* this is not the effect as with reset, as the border is enabled,
      * by default */
     draw_border = 0;
+}
+
+
+/* process 'unset style boxplot' command */
+static void
+unset_boxplot()
+{
+    boxplot_style defstyle = DEFAULT_BOXPLOT_STYLE;
+    boxplot_opts = defstyle;
 }
 
 
@@ -758,9 +792,7 @@ unset_fit()
     if (fitlogfile != NULL)
 	free(fitlogfile);
     fitlogfile = NULL;
-#if GP_FIT_ERRVARS
     fit_errorvariables = FALSE;
-#endif /* GP_FIT_ERRVARS */
 }
 
 
@@ -792,6 +824,7 @@ unset_format()
 	SET_DEFFORMAT(SECOND_X_AXIS, set_for_axis);
 	SET_DEFFORMAT(SECOND_Y_AXIS, set_for_axis);
 	SET_DEFFORMAT(COLOR_AXIS   , set_for_axis);
+	SET_DEFFORMAT(POLAR_AXIS   , set_for_axis);
     }
 }
 
@@ -817,11 +850,7 @@ unset_grid()
 static void
 unset_hidden3d()
 {
-#ifdef LITE
-    printf(" Hidden Line Removal Not Supported in LITE version\n");
-#else
     hidden3d = FALSE;
-#endif
 }
 
 static void
@@ -933,6 +962,31 @@ delete_label(struct text_label *prev, struct text_label *this)
     }
 }
 
+static void
+unset_linestyle(struct linestyle_def **head)
+{
+    int tag = int_expression();
+    struct linestyle_def *this, *prev;
+    for (this = *head, prev = NULL; this != NULL; 
+	 prev = this, this = this->next) {
+	if (this->tag == tag) {
+	    delete_linestyle(head, prev, this);
+	    break;
+	}
+    }
+}
+
+static void
+unset_linetype()
+{
+    if (equals(c_token,"cycle")) {
+	linetype_recycle_count = 0;
+	c_token++;
+    }
+    else if (!END_OF_COMMAND)
+	unset_linestyle(&first_perm_linestyle);
+}
+
 #ifdef EAM_OBJECTS
 /* process 'unset rectangle' command */
 static void
@@ -1005,8 +1059,11 @@ unset_locale()
 static void
 reset_logscale(AXIS_INDEX axis)
 {
+    TBOOLEAN undo_rlog = (axis == POLAR_AXIS && R_AXIS.log);
     axis_array[axis].log = FALSE;
     axis_array[axis].base = 0.0;
+    if (undo_rlog)
+	rrange_to_xy();
 }
 
 /* process 'unset logscale' command */
@@ -1026,11 +1083,11 @@ unset_logscale()
 	/* do reverse search because of "x", "x1", "x2" sequence in
 	 * axisname_tbl */
 	while (i < token[c_token].length) {
-	    axis = lookup_table_nth_reverse(axisname_tbl, AXIS_ARRAY_SIZE,
+	    axis = lookup_table_nth_reverse(axisname_tbl, LAST_REAL_AXIS+1,
 					    gp_input_line + token[c_token].start_index + i);
 	    if (axis < 0) {
 		token[c_token].start_index += i;
-		int_error(c_token, "unknown axis");
+		int_error(c_token, "invalid axis");
 	    }
 	    reset_logscale(axisname_tbl[axis].value);
 	    i += strlen(axisname_tbl[axis].key);
@@ -1184,6 +1241,13 @@ unset_print()
     print_set_output(NULL, FALSE);
 }
 
+/* process 'unset psdir' command */
+static void
+unset_psdir()
+{
+    free(PS_psdir);
+    PS_psdir = NULL;
+}
 
 /* process 'unset parametric' command */
 static void
@@ -1236,6 +1300,13 @@ unset_pm3d()
     if (func_style == PM3DSURFACE) func_style = LINES;
 }
 
+
+/* process 'unset pointintervalbox' command */
+static void
+unset_pointintervalbox()
+{
+    pointintervalbox = 1.0;
+}
 
 /* process 'unset pointsize' command */
 static void
@@ -1304,8 +1375,11 @@ unset_style()
 	unset_fillstyle();
 #ifdef EAM_OBJECTS
 	unset_style_rectangle();
+	unset_style_circle();
+	unset_style_ellipse();
 #endif
 	unset_histogram();
+	unset_boxplot();
 	c_token++;
 	return;
     }
@@ -1325,15 +1399,7 @@ unset_style()
 	    while (first_linestyle != NULL)
 		delete_linestyle(&first_linestyle, NULL, first_linestyle);
 	} else {
-	    int tag = int_expression();
-	    struct linestyle_def *this, *prev;
-	    for (this = first_linestyle, prev = NULL; this != NULL; 
-		 prev = this, this = this->next) {
-		if (this->tag == tag) {
-		    delete_linestyle(&first_linestyle, prev, this);
-		    break;
-		}
-	    }
+	    unset_linestyle(&first_linestyle);
 	}
 	break;
     case SHOW_STYLE_FILLING:
@@ -1353,7 +1419,19 @@ unset_style()
 	unset_style_rectangle();
 	c_token++;
 	break;
+    case SHOW_STYLE_CIRCLE:
+	unset_style_circle();
+	c_token++;
+	break;
+    case SHOW_STYLE_ELLIPSE:
+	unset_style_ellipse();
+	c_token++;
+	break;
 #endif
+    case SHOW_STYLE_BOXPLOT:
+	unset_boxplot();
+	c_token++;
+	break;
     default:
 	int_error(c_token, "expecting 'data', 'function', 'line', 'fill' or 'arrow'");
     }
@@ -1458,6 +1536,7 @@ unset_view()
     surface_rot_z = 30.0;
     surface_rot_x = 60.0;
     surface_scale = 1.0;
+    surface_lscale = 0.0;
     surface_zscale = 1.0;
 }
 
@@ -1588,6 +1667,8 @@ reset_command()
     while (first_object != NULL)
 	delete_object((struct object *) NULL, first_object);
     unset_style_rectangle();
+    unset_style_circle();
+    unset_style_ellipse();
 #endif
 
     /* 'polar', 'parametric' and 'dummy' are interdependent, so be
@@ -1617,6 +1698,9 @@ reset_command()
 	axis_array[axis].writeback_max = axis_array[axis].set_max
 	    = axis_defaults[axis].max;
 
+	axis_array[axis].min_constraint = CONSTRAINT_NONE;
+	axis_array[axis].max_constraint = CONSTRAINT_NONE;
+	
 	/* 'tics' default is on for some, off for the other axes: */
 	unset_tics(axis);
 	axis_array[axis].ticmode = axis_defaults[axis].ticmode;
@@ -1626,7 +1710,9 @@ reset_command()
 
 	reset_logscale(axis);
     }
+    raxis = TRUE;
 
+    unset_boxplot();
     unset_boxwidth();
 
     clip_points = FALSE;
@@ -1640,6 +1726,10 @@ reset_command()
 
     data_style = POINTSTYLE;
     func_style = LINES;
+
+    /* Reset individual plot style options to the default */
+    filledcurves_opts_data.closeto = FILLEDCURVES_CLOSED;
+    filledcurves_opts_func.closeto = FILLEDCURVES_CLOSED;
 
     bar_size = 1.0;
     bar_layer = LAYER_FRONT;
@@ -1679,6 +1769,7 @@ reset_command()
     unset_margin(&rmargin);
     unset_margin(&tmargin);
     unset_pointsize();
+    unset_pointintervalbox();
     pm3d_reset();
     reset_colorbox();
     reset_palette();
@@ -1705,6 +1796,20 @@ unset_style_rectangle()
 {
     struct object foo = DEFAULT_RECTANGLE_STYLE;
     default_rectangle = foo;
+    return;
+}
+static void
+unset_style_circle()
+{
+    struct object foo = DEFAULT_CIRCLE_STYLE;
+    default_circle = foo;
+    return;
+}
+static void
+unset_style_ellipse()
+{
+    struct object foo = DEFAULT_ELLIPSE_STYLE;
+    default_ellipse = foo;
     return;
 }
 #endif

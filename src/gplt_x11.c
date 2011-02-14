@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.194 2009/03/26 00:49:13 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.202 2010/10/07 18:29:42 sfeam Exp $"); }
 #endif
 
 #define X11_POLYLINE 1
@@ -210,11 +210,6 @@ typedef struct axis_scale_t {
 #  define EXIT(status) exit(status)
 # endif	/* PIPE_IPC */
 #endif /* !VMS */
-
-#ifdef OSK
-# define EINTR	E_ILLFNC
-#endif
-
 
 #define Ncolors 13
 
@@ -668,10 +663,6 @@ main(int argc, char *argv[])
     int getfl;
 #endif
 
-#ifdef OSK
-    /* malloc large blocks, otherwise problems with fragmented mem */
-    _mallocmin(102400);
-#endif
 #ifdef __EMX__
     /* close open file handles */
     fcloseall();
@@ -2226,7 +2217,11 @@ exec_cmd(plot_struct *plot, char *command)
 
 	if (sscanf(buffer + 1, "%4d%4d%4d%4d%4d", &style, &xtmp, &ytmp, &w, &h) == 5) {
 
-	    x11_setfill(&gc, style);
+	    /* Load selected pattern or fill into a separate gc */
+	    if (!fill_gc)
+		fill_gc = XCreateGC(dpy, plot->window, 0, 0);
+	    XCopyGC(dpy, *current_gc, ~0, fill_gc);
+	    x11_setfill(&fill_gc, style);
 
 	    /* gnuplot has origin at bottom left, but X uses top left
 	     * There may be an off-by-one (or more) error here.
@@ -2234,10 +2229,7 @@ exec_cmd(plot_struct *plot, char *command)
 	    ytmp += h;		/* top left corner of rectangle to be filled */
 	    w *= xscale;
 	    h *= yscale;
-	    XFillRectangle(dpy, plot->pixmap, gc, X(xtmp), Y(ytmp), w + 1, h + 1);
-	    /* reset everything */
-	    XSetForeground(dpy, gc, plot->cmap->colors[plot->lt + 3]);
-	    XSetFillStyle(dpy, gc, FillSolid);
+	    XFillRectangle(dpy, plot->pixmap, fill_gc, X(xtmp), Y(ytmp), w + 1, h + 1);
 	}
     }
     /*   X11_justify_text(mode) - set text justification mode  */
@@ -3015,7 +3007,7 @@ exec_cmd(plot_struct *plot, char *command)
 
 			if (sample_data) {
 
-			    XImage *image_src;
+			    XImage *image_src = NULL;
 			    XImage *image_dest;
 
 			    /* Create an initialized image object. */
@@ -3699,7 +3691,14 @@ PaletteSetColor(plot_struct * plot, double gray)
     if (plot->cmap->allocated) {
 	int index;
 
-	gray = floor(gray * plot->cmap->allocated) / (plot->cmap->allocated - 1);
+	/* FIXME  -  I don't understand why sm_palette is not always in sync	*/
+	/* with plot->cmap->allocated, but in practice they can be different.	*/
+	if (sm_palette.use_maxcolors == plot->cmap->allocated) {
+	    gray = quantize_gray(gray);
+	    FPRINTF((stderr," %d",plot->cmap->allocated));
+	} else
+	    gray = floor(gray * plot->cmap->allocated) / (plot->cmap->allocated - 1);
+
 	index = gray * (plot->cmap->allocated - 1);
 	if (index >= plot->cmap->allocated)
 		index = plot->cmap->allocated -1;
@@ -4851,7 +4850,6 @@ process_event(XEvent *event)
 */
 #define On(v) ( !strncasecmp(v, "on", 2) || !strncasecmp(v, "true", 4) )
 
-#define AppDefDir "/usr/lib/X11/app-defaults"
 #ifndef MAXHOSTNAMELEN
 #define MAXHOSTNAMELEN 64
 #endif
@@ -5013,10 +5011,23 @@ gnuplot: X11 aborted.\n", ldisplay);
 	        sizeof(appdefdir));
 	sprintf(buffer, "%s/%s", appdefdir, "Gnuplot");
     }
-# else /* !OS/2 */
-    strcpy(buffer, AppDefDir);
-    strcat(buffer, "/");
-    strcat(buffer, "Gnuplot");
+#else /* !OS/2 */
+    {
+    char *appdefdir;
+	if ((appdefdir = getenv("XAPPLRESDIR")) == NULL) {
+#ifdef XAPPLRESDIR
+    	    strcpy(buffer, XAPPLRESDIR);
+    	    strcat(buffer, "/");
+    	    strcat(buffer, "Gnuplot");
+#else
+	    *buffer = '\0';
+#endif
+	} else {
+    	    strcpy(buffer, appdefdir);
+    	    strcat(buffer, "/");
+    	    strcat(buffer, "Gnuplot");
+	}
+    }
 #endif /* !VMS */
 
     dbApp = XrmGetFileDatabase(buffer);
@@ -5543,8 +5554,10 @@ char *fontname;
     char *orgfontname = NULL;
 #endif
 
-    if (!fontname || !(*fontname))
+    if (!fontname || !(*fontname)) {
 	fontname = default_font;
+	*previous_font_name = '\0';
+    }
 
     if (!fontname || !(*fontname)) {
 	if ((fontname = pr_GetR(db, ".font")))
@@ -5594,6 +5607,7 @@ char *fontname;
 	if (!strncmp(fontname, "DEFAULT", 7)) {
 	    sscanf(&fontname[8], "%d", &fontsize);
 	    fontname = default_font;
+	    *previous_font_name = '\0';
 #ifdef USE_X11_MULTIBYTE
 	    backfont = 1;
 #endif

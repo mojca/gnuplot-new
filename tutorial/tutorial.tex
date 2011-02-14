@@ -1,5 +1,5 @@
 %
-% $Id: tutorial.tex,v 1.7 2006/11/18 21:56:35 vanzandt Exp $
+% $Id: tutorial.tex,v 1.10 2010/09/19 19:54:31 sfeam Exp $
 %
 % Tutorial for gnuplot plotting program, for LaTeX users
 % David Kotz
@@ -7,6 +7,7 @@
 %
 % Slightly updated by the gnuplot team in 2004, for gnuplot 4.0.
 % Updated for gnuplot 4.2 to include epslatex example by Ethan A Merritt
+% Updated for gnuplot 4.4 to replace 'set size' with 'set term latex size'
 %
 % NOTE: If LaTeX runs out of memory processing plots,
 % add ``with lines 4'' to each curve in eg*.plt and rerun make.
@@ -31,7 +32,8 @@ Principal author of this tutorial for gnuplot 3.0, July 3, 1991 \\[1.0cm]
 
 {\bf current gnuplot team} \\[0.4cm]
 Updates of this tutorial for gnuplot 4.0, March 2004 \\
-Updates of this tutorial for gnuplot 4.2, August 2006
+Update of this tutorial for gnuplot 4.2, August 2006 \\
+Update of this tutorial for gnuplot 4.4, September 2010
 
 \vskip2cm
 
@@ -48,7 +50,7 @@ Updates of this tutorial for gnuplot 4.2, August 2006
 
 
 \pagestyle{myheadings}
-\markright{Gnuplot \LaTeX\ Tutorial Version 4.2}
+\markright{Gnuplot \LaTeX\ Tutorial Version 4.4}
 
 \currentspace % defined in header.tex
 
@@ -66,8 +68,7 @@ publication-quality plots.
 In late 1989 and early 1990 Gnu\TeX\ and a number of other gnuplot
 variants were merged together into a new release of gnuplot, 2.0. This
 includes, among many other improvements, a \LaTeX\ driver derived from
-the one in Gnu\TeX. Former Gnu\TeX\ users are referred to
-Section~\ref{oldusers} for information about adapting to gnuplot.
+the one in Gnu\TeX.
 Anyone interested in using gnuplot with \LaTeX\ should read the next
 section, a tutorial, and the primary gnuplot manual.
 
@@ -77,7 +78,7 @@ memory capacity of \TeX. If an enlarged version of \TeX\ is available,
 it is wise to use it. Otherwise, keep your plots simple and add
 \verb+\clearpage+ to your document where necessary.
 
-There is also a new EEPIC driver ({\tt eepic}), intended for use with
+There is also an EEPIC driver ({\tt eepic}), intended for use with
 the EEPIC macro package for \LaTeX. EEPIC allows for much more
 efficient line-drawing, runs through \LaTeX\ faster, and uses less
 memory.  See Section~\ref{s:eepic} for more information.
@@ -85,8 +86,7 @@ memory.  See Section~\ref{s:eepic} for more information.
 There is a small package of auxiliary files (makefiles and scripts)
 that I find useful for making \LaTeX\ plots with gnuplot. This is
 available for \verb+ftp+ as \verb+pub/gnuplot-latex.shar+ from
-\verb+cs.duke.edu+. I can mail copies (see the end of this paper for
-information).
+\verb+cs.duke.edu+.
 
 \section{Using gnuplot for \LaTeX: a Tutorial}
 
@@ -164,9 +164,8 @@ some labels.  This input file produces Figure~\ref{eg2}.
 
 \singlespace
 \begin{verbatim}
-    set terminal latex
+    set terminal latex size 7cm, 5cm
     set output "eg2.tex"
-    set size 5/5., 4/3.
     set format xy "$%g$"
     set title 'This is a plot of $y=\sin(x)$'
     set xlabel 'This is the $x$ axis'
@@ -175,20 +174,18 @@ some labels.  This input file produces Figure~\ref{eg2}.
 \end{verbatim}
 \currentspace
 
-\boxfigure{htbp}{\fullboxwidth}{
+\begin{figure}[htbp]
   \begin{center}
     \input{eg2}
   \end{center}
-  \caption{A more fancy example.}
+  \caption{A fancier example.}
   \label{eg2}
-}
+\end{figure}
 
-We have specified the plot to be 5 inches wide and 4 inches tall with
-the {\tt set size} command. This is the size of the area used by the
-plot, {\em including} space for the labels.  In the first example,
-this size was the default 5 inches by 3 inches. By specifying the
-scaling factors of 1 (or 5/5) and 1.3333 (or 4/3), we obtain the
-desired plot size.
+We have specified the plot to be 7 cm wide and 5 cm tall with
+the {\tt set term latex size ...} command. This is the size of the 
+area used by the plot, {\em including} space for the labels.
+In the first example, this size was the default 5 inches by 3 inches.
 
 We have requested that the format used by the $x$- and $y$-axis tic
 mark labels be in \LaTeX\ math mode. This makes the labels look a
@@ -262,7 +259,7 @@ data points, and another called {\tt dots} that plots a tiny dot for
 each data point.  The {\tt points} and {\tt linespoints} styles
 produce a different point symbol for each curve on the plot (for up to
 twelve symbols, after which they are re-used; see
-Figure~\ref{test} for a complete list). The {\tt lines} and {\tt
+Figure~\ref{testcomp} for a complete list). The {\tt lines} and {\tt
 linespoints} styles use a different line style for each curve on the
 plot (in this example the dots have different spacing). The
 style {\tt impulses} draws a perpendicular from each point to the
@@ -344,44 +341,35 @@ self-explanatory. This is shown in Figure~\ref{eg6}.
 
 \singlespace
 \begin{verbatim}
-    set terminal latex
+    set terminal latex size 5.0, 3.0
     set output "eg6.tex"
-    set size 3.5/5, 3/3.
     set format y "$%g$"
     set format x '$%5.1f\mu$'
     set title "This is a title"
-    set xlabel "This is the $x$ axis"
-    set ylabel 'This is\\a longer\\version\\ of\\the $y$\\ axis'
+    set xlabel "This is the $x$ axis" 
+    set ylabel 'This is\\a longer\\version\\ of\\the $y$\\ axis' offset -1
     set label "Data" at -5,-5 right
     set arrow from -5,-5 to -3.3,-6.7
-    set key at -4,8
+    set key top left
     set xtic -10,5,10
     plot [-10:10] [-10:10] "eg3.dat" title "Data File"  with linespoints lt 1 pt 7,\
        3*exp(-x*x)+1  title '$3e^{-x^{2}}+1$' with lines lt 4
 \end{verbatim}
 \currentspace
 
-\boxfigure{htbp}{\fullboxwidth}{
+\begin{figure}
   \begin{center}
     \input{eg6}
   \end{center}
   \caption{An example of many features.}
   \label{eg6}
-}
+\end{figure}
 
 \paragraph{Line and point types:} For reference, we show all of the
-line and point types available in Figure~\ref{test}.
-
-\boxfigure{htbp}{\fullboxwidth}{
-  \begin{center}
-    \input{test}
-  \end{center}
-  \caption{All of the line and point types in the \LaTeX\ driver.}
-  \label{test}
-}
+line and point types available in Figure~\ref{testcomp}.
 
 \subsection{Summary --- Use with \LaTeX}
-In summary, to use the \LaTeX\ facilities of gnuplot, the first
+In summary, to use the most basic \LaTeX\ mode of gnuplot, the first
 command to gnuplot should be
 \begin{syntax}
     set terminal latex
@@ -391,15 +379,13 @@ and the output of gnuplot should be directed to a file, for example,
     set output "plot.tex"
 \end{verbatim}
 This may be anything you like but it should have a {\tt .tex} extension,
-of course. Then the size of the plot should be given. For example, the
-command
-\begin{verbatim}
-    set size 1,2
-\end{verbatim}
-tells gnuplot to use a 5 inch wide by 6 inch high box for the plot.
-The numbers given are {\em scale factors}, not the actual size.  The
-default is 5 inches by 3 inches.  This is the size of the complete
-plot, including all labels.
+of course. The default plot size is 5 inches by 3 inches.
+You can change this be specifying a size in either cm or inches when 
+you select the terminal
+\begin{syntax}
+    set terminal latex size 7cm, 5cm
+\end{syntax}
+
 
 Then you do the (s)plot, and finally issue commands to close the file and
 switch the terminal back to the default by
@@ -444,24 +430,11 @@ To use EEPIC, set gnuplot's terminal type to {\tt eepic} instead of
 Include the file {\tt plot.tex} in your document as before, along with
 the document style options {\tt [epic,eepic]}.
 
-\section{For Former Gnu\TeX\ Users}
-\label{oldusers}
-
-Former Gnu\TeX\ users may be pleased with many of the new features
-(many inspired by your suggestions!), but will also find many changes.
-gnuplot will \emph{not} run all Gnu\TeX\ input files unchanged.
-Several Gnu\TeX\ features were not included in gnuplot because they
-were specific to the \LaTeX\ driver. I encourage you to use the newer
-gnuplot.  A translator is available that attempts to translate your
-old Gnu\TeX\ 1.6 input files into gnuplot 3.0 files. You can ftp it
-from \verb+cs.duke.edu+ as \verb+dist/sources/gnuplot/gnut2p.tar.Z+.
-This file also contains directions and a list of changes from Gnu\TeX\
-to gnuplot.
-
 \section{What is new for \TeX{} and \LaTeX{} terminals in gnuplot 4.0}
 
 In addition to the \texttt{latex} terminal, the following \LaTeX-friendly
-terminals are available:
+terminals are available. The gnuplot documentation contains more information
+about the options and usage for each of these.
 
 \begin{itemize}
 \item \texttt{emtex}: Like the \texttt{latex} terminal, but supports emtex
@@ -479,11 +452,18 @@ postscript parts for text and lines, respectively, included by
 
 \end{itemize}
 
-See helps of these terminals for more details about their usage.
 
-In addition, the \texttt{postscript eps enhanced} is the most useful for \TeX{}
-and \LaTeX{} if you don't insist on using \TeX{} fonts for the graph labels, and
-\texttt{pdf enhanced} and \texttt{png enhanced} for pdf\LaTeX{}.
+\section{What is new for \TeX{} and \LaTeX{} terminals in gnuplot 4.4}
+
+\begin{itemize}
+
+\item \texttt{pslatex and epslatex}:  Rewritten version.  See the example below. 
+
+\item \texttt{tikz}:  Much improved graphics compaired to earlier \LaTeX terminals.  
+Use of the terminal requires a lua interpreter that is called by gnuplot. 
+The resulting .tex file can be processed using pdflatex.
+
+\end{itemize}
 
 \section{Sample of epslatex terminal driver}
 \label{epslatex}
@@ -522,6 +502,13 @@ generated with the following commands:
   \label{epslatex_test}
 }
 
+\begin{figure}[htbp]
+  \begin{center}
+  \input{test}
+  \end{center}
+  \caption{Line and point types for the basic latex terminal. Note lack of text rotation.}
+  \label{testcomp}
+\end{figure}
 
 \section{Contact for help}
 

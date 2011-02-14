@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: util3d.c,v 1.36 2009/01/07 22:55:42 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: util3d.c,v 1.44 2011/01/23 23:02:08 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - util3d.c */
@@ -922,28 +922,9 @@ map3d_xy_double(
     double x, double y, double z,
     double *xt, double *yt)
 {
-    int i, j;
-    double v[4], res[4],	/* Homogeneous coords. vectors. */
-     w = trans_mat[3][3];
-
-    v[0] = map_x3d(x);		/* Normalize object space to -1..1 */
-    v[1] = map_y3d(y);
-    v[2] = map_z3d(z);
-    v[3] = 1.0;
-
-    for (i = 0; i < 2; i++) {	/* Dont use the third axes (z). */
-	res[i] = trans_mat[3][i];	/* Initiate it with the weight factor */
-	for (j = 0; j < 3; j++)
-	    res[i] += v[j] * trans_mat[j][i];
-    }
-
-    for (i = 0; i < 3; i++)
-	w += v[i] * trans_mat[i][3];
-    if (w == 0)
-	w = 1e-5;
-
-    *xt = ((res[0] * xscaler / w) + xmiddle);
-    *yt = ((res[1] * yscaler / w) + ymiddle);
+    vertex v;
+    map3d_xyz(x, y, z, &v);
+    TERMCOORD(&v, *xt, *yt);
 }
 
 
@@ -955,11 +936,9 @@ draw3d_point_unconditional(p_vertex v, struct lp_style_type *lp)
     unsigned int x, y;
 
     TERMCOORD(v, x, y);
+    /* Jul 2010 EAM - is it safe to overwrite like this? Make a copy instead? */
+    lp->pm3d_color.value = v->real_z;
     term_apply_lp_properties(lp);
-    /* HBB 20010822: implemented "linetype palette" for points, too */
-    if (lp->use_palette) {
-	set_color(cb2gray( z2cb(v->real_z) ));
-    }
     if (!clip_point(x, y))
 	(term->point) (x, y, lp->p_type);
 }
@@ -971,7 +950,7 @@ void
 draw3d_line_unconditional(
     p_vertex v1, p_vertex v2,
     struct lp_style_type *lp,
-    int linetype)
+    t_colorspec color)
 {
     unsigned int x1, y1, x2, y2;
     struct lp_style_type ls = *lp;
@@ -986,34 +965,35 @@ draw3d_line_unconditional(
     TERMCOORD(v1, x1, y1);
     TERMCOORD(v2, x2, y2);
 
-    /* User-specified line styles */
-    if (prefer_line_styles && linetype >= 0)
-	lp_use_properties(&ls, linetype+1);
-
-    /* The usual case of auto-generated line types */
-    else
-	ls.l_type = linetype;
+    /* Replace original color with the one passed in */
+	ls.pm3d_color = color;
 
     /* Color by Z value */
     if (ls.pm3d_color.type == TC_Z)
 	    ls.pm3d_color.value = (v1->real_z + v2->real_z) * 0.5;
 
     term_apply_lp_properties(&ls);
-    draw_clip_line(x1,y1,x2,y2);
+
+    /* Support for hidden3d VECTOR mode with arrowheads */
+    if (lp->p_type == PT_ARROWHEAD)
+	draw_clip_arrow(x1,y1,x2,y2,END_HEAD);
+    else if (lp->p_type == PT_BACKARROW)
+	draw_clip_arrow(x1,y1,x2,y2,BACKHEAD);
+    else
+
+	draw_clip_line(x1,y1,x2,y2);
 }
 
 void
 draw3d_line (p_vertex v1, p_vertex v2, struct lp_style_type *lp)
 {
-#ifndef LITE
     /* hidden3d routine can't work if no surface was drawn at all */
     if (hidden3d && draw_surface) {
 	draw_line_hidden(v1, v2, lp);
 	return;
     }
-#endif
 
-    draw3d_line_unconditional(v1, v2, lp, lp->l_type);
+    draw3d_line_unconditional(v1, v2, lp, lp->pm3d_color);
 
 }
 
@@ -1022,14 +1002,12 @@ draw3d_line (p_vertex v1, p_vertex v2, struct lp_style_type *lp)
 void
 draw3d_point(p_vertex v, struct lp_style_type *lp)
 {
-#ifndef LITE
     /* hidden3d routine can't work if no surface was drawn at all */
     if (hidden3d && draw_surface) {
 	/* Draw vertex as a zero-length edge */
 	draw_line_hidden(v, NULL, lp);
 	return;
     }
-#endif
 
     draw3d_point_unconditional(v, lp);
 }
@@ -1046,10 +1024,8 @@ polyline3d_start(p_vertex v1)
     unsigned int x1, y1;
 
     polyline3d_previous_vertex = *v1;
-#ifndef LITE
     if (hidden3d && draw_surface)
 	return;
-#endif /* LITE */
 
     /* EAM - This may now be unneeded. But I'm not sure. */
     /*       Perhaps the hidden3d code needs the move.   */
@@ -1064,7 +1040,6 @@ polyline3d_next(p_vertex v2, struct lp_style_type *lp)
     unsigned int x2, y2;
 
     /* Copied from draw3d_line(): */
-#ifndef LITE
     /* FIXME HBB 20031218: hidden3d mode will still create isolated
      * edges! */
     if (hidden3d && draw_surface) {
@@ -1072,14 +1047,13 @@ polyline3d_next(p_vertex v2, struct lp_style_type *lp)
 	polyline3d_previous_vertex = *v2;
 	return;
     }
-#endif
 
     /* Copied from draw3d_line_unconditional: */
     /* If use_palette is active, polylines can't be used -->
      * revert back to old method */
     if (lp->use_palette) {
 	draw3d_line_unconditional(&polyline3d_previous_vertex, v2,
-				  lp, lp->l_type);
+				  lp, lp->pm3d_color);
 	polyline3d_previous_vertex = *v2;
 	return;
 
@@ -1089,4 +1063,15 @@ polyline3d_next(p_vertex v2, struct lp_style_type *lp)
     TERMCOORD(v2, x2, y2);
     draw_clip_line(x1,y1,x2,y2);
     polyline3d_previous_vertex = *v2;
+}
+
+/*
+ * Dummy up an x-axis scale so that we can share the 2D arrowhead routine.
+ */
+void
+apply_3dhead_properties(struct arrow_style_type *arrow_properties)
+{
+    X_AXIS.term_scale = (plot_bounds.xright - plot_bounds.xleft)
+			/ (X_AXIS.max - X_AXIS.min);
+    apply_head_properties(arrow_properties);
 }

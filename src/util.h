@@ -1,5 +1,5 @@
 /*
- * $Id: util.h,v 1.31 2008/03/18 00:16:33 sfeam Exp $
+ * $Id: util.h,v 1.33 2010/11/12 19:18:02 sfeam Exp $
  */
 
 /* GNUPLOT - util.h */
@@ -94,10 +94,16 @@ void gprintf __PROTO((char *, size_t, char *, double, double));
 
 /* Error message handling */
 #if defined(VA_START) && defined(STDC_HEADERS)
-void os_error __PROTO((int, const char *, ...));
-void int_error __PROTO((int, const char *, ...));
+#  if defined(__GNUC__)
+    void os_error __PROTO((int, const char *, ...)) __attribute__((noreturn));
+    void int_error __PROTO((int, const char *, ...)) __attribute__((noreturn));
+    void graph_error __PROTO((const char *, ...)) __attribute__((noreturn));
+#  else
+    void os_error __PROTO((int, const char *, ...));
+    void int_error __PROTO((int, const char *, ...));
+    void graph_error __PROTO((const char *, ...));
+#  endif
 void int_warn __PROTO((int, const char *, ...));
-void graph_error __PROTO((const char *, ...));
 #else
 void os_error __PROTO(());
 void int_error __PROTO(());
@@ -108,7 +114,8 @@ void graph_error __PROTO(());
 /* Helper functions for help_command() */
 /* FIXME HBB 20010726: should be moved to where help_comamnd() is, and
  * made static. Currently, that's command.c, but it should probably
- * move to help.c, instead. */
+ * move to help.c, instead. 
+ * Nov 2010: lower_case() no longer used by help. */
 void lower_case __PROTO((char *));
 void squash_spaces __PROTO((char *));
 

@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: gd.trm,v 1.142 2009/07/08 14:45:45 mikulik Exp $
+ * $Id: gd.trm,v 1.149 2010/09/16 04:58:45 sfeam Exp $
  * based on gif.trm,v 1.26.2.1 2000/05/01 00:17:20 joze
  */
 
@@ -64,6 +64,8 @@
  * color borders, then the X & Y axis, then the plotting colors.
  * (The wierd color spec is in order to get around limitations
  * in gnuplot's scanner.)
+ * EAM Feb 2010: This mechanism is totally obsolete except for setting the
+ * background color.  Revise the documentation accordingly.
  *
  * This driver is modeled after the PBM driver pbm.trm.
  *
@@ -246,6 +248,7 @@ static struct {
     gdFontPtr default_font;
     char *    default_ttffont;
     int       default_ttfsize;
+    double    fontscale;
     TBOOLEAN  TrueColor;
     /* Variables for animated gif support: */
     TBOOLEAN  animate;		/* Only gif supports animation */
@@ -266,7 +269,7 @@ enum PNG_id {
     PNG_CROP, PNG_NOCROP,
     /* Font size */
     PNG_TINY, PNG_SMALL, PNG_MEDIUM, PNG_LARGE, PNG_GIANT,
-    PNG_FONT,
+    PNG_FONT, PNG_FONTSCALE,
     PNG_SIZE,
     PNG_ENHANCED, PNG_NOENHANCED,
     PNG_TRUECOLOR, PNG_NOTRUECOLOR,
@@ -298,6 +301,7 @@ static struct gen_table PNG_opts[] =
     { "m$edium", PNG_MEDIUM },
     { "l$arge", PNG_LARGE },
     { "g$iant", PNG_GIANT },
+    { "fontscale", PNG_FONTSCALE },
     { "fo$nt", PNG_FONT },
     { "si$ze", PNG_SIZE },
     { "enh$anced", PNG_ENHANCED },
@@ -637,6 +641,7 @@ PNG_options()
 	png_state.ttffont = NULL;
 	png_state.default_ttffont = NULL;
 	png_state.default_ttfsize = 0;
+	png_state.fontscale = 1;
 	png_state.justify = CENTRE;
 	png_state.TrueColor = FALSE;
 	PNG_linewidth_factor = 1.0;
@@ -786,15 +791,15 @@ PNG_options()
 		png_state.default_ttffont = gp_strdup(png_state.ttffont);
 
 		/* First try the old GDFONTPATH mechanism for locating fonts */
-		err = gdUseFontConfig(0);
+		(void)gdUseFontConfig(0);
 		err = gdImageStringFT(NULL, &brect[0], 0,
-			png_state.ttffont, (double)png_state.default_ttfsize,
+			png_state.ttffont, (double)png_state.default_ttfsize*png_state.fontscale,
 			0.0, 0, 0, "test");
 	
 		/* If that didn't work, try again using the fontconfig mechanism */
 		if (err && gdUseFontConfig(1)) {
 		    err = gdImageStringFT(NULL, &brect[0], 0,
-			png_state.ttffont, (double)png_state.default_ttfsize,
+			png_state.ttffont, (double)png_state.default_ttfsize*png_state.fontscale,
 			0.0, 0, 0, "test");
 		}
 
@@ -815,6 +820,13 @@ PNG_options()
 #endif
 	    break;
 # undef UNSET_TTF_FONT
+
+	case PNG_FONTSCALE:
+	    c_token++;
+	    png_state.fontscale = END_OF_COMMAND ? 1 : real_expression();
+	    if (png_state.fontscale <= 0)
+		png_state.fontscale = 1.;
+	    break;
 
 	case PNG_SIZE:
 	    c_token++;
@@ -984,15 +996,15 @@ PNG_options()
 		png_state.default_ttfsize = 2 * term->h_char - 2;
 
 	/* First try the old GDFONTPATH mechanism for locating fonts */
-	err = gdUseFontConfig(0);
+	(void)gdUseFontConfig(0);
 	err = gdImageStringFT(NULL, &brect[0], 0,
-		png_state.ttffont, (double)png_state.default_ttfsize,
+		png_state.ttffont, (double)png_state.default_ttfsize*png_state.fontscale,
 		0.0, 0, 0, "test");
 
 	/* If that didn't work, try again using fontconfig mechanism */
 	if (err && gdUseFontConfig(1)) {
 	    err = gdImageStringFT(NULL, &brect[0], 0,
-		png_state.ttffont, (double)png_state.default_ttfsize,
+		png_state.ttffont, (double)png_state.default_ttfsize*png_state.fontscale,
 		0.0, 0, 0, "test");
 	}
 
@@ -1019,7 +1031,7 @@ PNG_options()
 	int brect[8];
 	char *err;
 	err = gdImageStringFT(NULL, &brect[0], 0,
-		png_state.default_ttffont, (double)png_state.default_ttfsize,
+		png_state.default_ttffont, (double)png_state.default_ttfsize*png_state.fontscale,
 		0.0, 0, 0, "f00000000g");
 	if (!err) {
 	    term->h_char = .11 * (float)(brect[2] - brect[0]) + 0.5;
@@ -1059,6 +1071,8 @@ PNG_options()
     if (png_state.ttffont) {
 	sprintf(term_options + strlen(term_options),
 		"font %s %d ", png_state.ttffont, png_state.ttfsize);
+	sprintf(term_options + strlen(term_options),
+		"fontscale %.1f ", png_state.fontscale);
     } else switch (term->h_char) {
     case 5:
 	strcat(term_options,"tiny ");
@@ -1250,9 +1264,6 @@ TERM_PUBLIC int PNG_make_palette (t_sm_palette *palette)
 	if (i == 0) {
 	    i = (sm_palette.colors <= 0) ? -1 : sm_palette.colors;
 	        /* (no more colorus) : (previous palette (obviously multiplot mode)) */
-#if 0
-	    if (i > 0) fprintf(stderr,"reusing it again\n");
-#endif
 	}
 	return i;
     }
@@ -1272,11 +1283,6 @@ TERM_PUBLIC int PNG_make_palette (t_sm_palette *palette)
 	    FPRINTF((stderr,"png_smooth_color[i]<0 cannot happen"));
 	    exit(1);
 	}
-#if 0
-	fprintf(stderr,"ALLOCATED: i=%i\t=> pal_index=%i\tr=%g g=%g b=%g\n",
-	    i, png_smooth_color[i],
-	    palette->color[i].r, palette->color[i].g, palette->color[i].b );
-#endif
     }
     return 0;
 }
@@ -1430,14 +1436,19 @@ PNG_graphics()
 {
     int i;
     unsigned int rgb;
-    unsigned int brgb = png_state.rgb_table[0];
  
+    for (i = png_state.n_colors; i < GD_DEFINED_COLORS; i++)
+	png_state.rgb_table[i] = pm3d_color_names_tbl[i].value;
+    if (png_state.n_colors < GD_DEFINED_COLORS)
+	png_state.n_colors = GD_DEFINED_COLORS;
+
 #if (GD2_VERS >= 2)
     /* TrueColor images default to a black background; load white instead.	*/
     /* If PNG_USE_TRANSPARENT, store the background alpha in the output file	*/
     /* but apply alpha for the rest of the image internally. Otherwise you	*/
     /* see only background through the topmost transparent layer.		*/
     if (png_state.TrueColor) {
+        unsigned int brgb = png_state.rgb_table[0];
 	png_state.image = gdImageCreateTrueColor(PNG_XMAX, PNG_YMAX);
 	if (!png_state.image)
 	    int_error(NO_CARET,"libgd: failed to create output image structure");
@@ -1463,10 +1474,7 @@ PNG_graphics()
     png_state.charh = term->v_char;	/* png_state.font->h; */
     png_state.font = png_state.default_font;
     png_state.color = 0;
-    for (i = png_state.n_colors; i < GD_DEFINED_COLORS; i++)
-	png_state.rgb_table[i] = pm3d_color_names_tbl[i].value;
-    if (png_state.n_colors < GD_DEFINED_COLORS)
-	png_state.n_colors = GD_DEFINED_COLORS;
+
     for (i = 0; i < png_state.n_colors; i++) {
 	rgb = png_state.rgb_table[i];
 	png_state.color_table[i] =
@@ -1474,8 +1482,7 @@ PNG_graphics()
 				 (rgb >> 8) & 0xff, rgb & 0xff);
     }
     if (png_state.flags & PNG_USE_TRANSPARENT)
-	gdImageColorTransparent(png_state.image,
-				png_state.color_table[0]);
+	gdImageColorTransparent(png_state.image, png_state.color_table[0]);
     else
 	gdImageColorTransparent(png_state.image, -1);
 
@@ -1633,7 +1640,7 @@ PNG_put_text(unsigned int x, unsigned int y, const char *string)
 	/* Draw once with a NULL image to get the bounding rectangle */
 	/* then draw it again, centered.                             */
 	err = gdImageStringFT(NULL, brect, png_state.color,
-			png_state.ttffont, (double)png_state.ttfsize,
+			png_state.ttffont, (double)png_state.ttfsize*png_state.fontscale,
 			(double)png_state.angle * M_PI_2 / 90. ,
 			x, Y(y), (char *)string);
 	if (err) {
@@ -1655,7 +1662,7 @@ PNG_put_text(unsigned int x, unsigned int y, const char *string)
 		default:	break;
 	    }
 	    err = gdImageStringFT(png_state.image, brect, png_state.color,
-			png_state.ttffont, (double)png_state.ttfsize,
+			png_state.ttffont, (double)png_state.ttfsize*png_state.fontscale,
 			(double)png_state.angle * M_PI_2 / 90.,
 			x, Y(y), (char *)string);
 	    if (err)
@@ -1859,9 +1866,20 @@ PNG_set_font(const char *fontname)
     if (png_state.ttffont) {
 	int brect[8];
 	char *err;
+        /* First try the old GDFONTPATH mechanism for locating fonts */
+	(void)gdUseFontConfig(0);
 	err = gdImageStringFT(NULL, &brect[0], 0,
-		png_state.ttffont, (double)png_state.ttfsize,
+		png_state.ttffont, (double)png_state.ttfsize*png_state.fontscale,
 		0.0, 0, 0, "f00000000g");
+	/* If that didn't work, try again using fontconfig mechanism */
+	if (err && gdUseFontConfig(1)) {
+	    FPRINTF((stderr,"DEBUG1: gd.trm:3: gdUseFontConfig(1) (%s)\n",
+		    png_state.ttffont));
+	    err = gdImageStringFT(NULL, &brect[0], 0,
+		png_state.ttffont, 
+		(double)png_state.default_ttfsize*png_state.fontscale,
+		0.0, 0, 0, "f00000000g");
+	}
 	if (!err) {
 	    term->h_char = .11 * (float)(brect[2] - brect[0]) + 0.5;
 	    term->v_char = 1.1 * (float)(brect[1] - brect[7]) + 0.5;
@@ -1958,6 +1976,8 @@ ENHGD_FLUSH()
 	    x += sin((double)png_state.angle * M_PI_2/90.) * (double)png_state.charh/4.;
 	    y -= cos((double)png_state.angle * M_PI_2/90.) * (double)png_state.charh/4.;
 
+	    /* First try the old GDFONTPATH mechanism for locating fonts */
+	    (void)gdUseFontConfig(0);
 #ifdef gdFTEX_Adobe_Custom
 	    /* libgd defaults to UTF-8 encodings. We have limited options for	*/
 	    /* over-riding this, but we can try					*/
@@ -1974,6 +1994,14 @@ ENHGD_FLUSH()
 			ENHgd_font, ENHgd_fontsize,
 			(double)png_state.angle * M_PI_2/90.,
 			x, Y(y), enhanced_text, &PNG_FONT_INFO);
+	    if (err && gdUseFontConfig(1)) {
+		err = gdImageStringFTEx(
+			(ENHgd_show && !ENHgd_sizeonly) ? png_state.image : NULL,
+			brect, png_state.color,
+			ENHgd_font, ENHgd_fontsize,
+			(double)png_state.angle * M_PI_2/90.,
+			x, Y(y), enhanced_text, &PNG_FONT_INFO);
+	    }
 #else
 	    err = gdImageStringFT(
 			(ENHgd_show && !ENHgd_sizeonly) ? png_state.image : NULL,
@@ -1981,6 +2009,14 @@ ENHGD_FLUSH()
 			ENHgd_font, ENHgd_fontsize,
 			(double)png_state.angle * M_PI_2/90.,
 			x, Y(y), enhanced_text);
+	    if (err && gdUseFontConfig(1)) {
+		err = gdImageStringFT(
+			(ENHgd_show && !ENHgd_sizeonly) ? png_state.image : NULL,
+			brect, png_state.color,
+			ENHgd_font, ENHgd_fontsize,
+			(double)png_state.angle * M_PI_2/90.,
+			x, Y(y), enhanced_text);
+	    }
 #endif
 	    if (err) 
 		fprintf(stderr,"gdImageStringFT: %s while printing string %s with font %s\n",
@@ -2023,7 +2059,7 @@ ENHGD_put_text(unsigned int x, unsigned int y, const char *str)
     PNG_move(x,y);
 
     /* set up the global variables needed by enhanced_recursion() */
-    enhanced_fontscale = 1.0;
+    enhanced_fontscale = png_state.fontscale;
     strncpy(enhanced_escape_format,"&#x%2.2x;",sizeof(enhanced_escape_format));
 
     ENHgd_opened_string = FALSE;
@@ -2046,7 +2082,7 @@ ENHGD_put_text(unsigned int x, unsigned int y, const char *str)
      * we get stuck in an infinite loop) and try again.
      */
     while (*(str = enhanced_recursion((char *)str, TRUE,
-			ENHgd_font, ENHgd_fontsize,
+			ENHgd_font, ENHgd_fontsize * png_state.fontscale,
 			0.0, TRUE, TRUE, 0))) {
 	(term->enhanced_flush)();
 
@@ -2214,7 +2250,7 @@ TERM_TABLE_START(png_driver)
     PNG_linetype, PNG_put_text, PNG_text_angle,
     PNG_justify_text, PNG_point, do_arrow, PNG_set_font,
     PNG_pointsize,
-    TERM_CAN_MULTIPLOT | TERM_BINARY, /* TERM_ALPHA_CHANNEL only if truecolor */
+    TERM_CAN_MULTIPLOT|TERM_BINARY|TERM_LINEWIDTH|TERM_FONTSCALE, /* TERM_ALPHA_CHANNEL only if truecolor */
     0 /*suspend*/, 0 /*resume*/,
     PNG_boxfill /*EAM - fillbox*/,
     PNG_linewidth /*EAM - linewidth*/
@@ -2247,13 +2283,14 @@ START_HELP(png)
 "?png",
 " Syntax:",
 "       set terminal png ",
+"              {{no}enhanced}",
 "              {{no}transparent} {{no}interlace}",
 "              {{no}truecolor} {rounded|butt}",
 "              {linewidth <lw>} {dashlength <dl>}",
 "              {tiny | small | medium | large | giant}",
-"              {font \"<face> {,<pointsize>}\"} {{no}enhanced}",
+"              {font \"<face> {,<pointsize>}\"} {fontscale <scale>}",
 "              {size <x>,<y>} {{no}crop}",
-"              {<color0> <color1> <color2> ...}",
+"              {<background_color>}",
 "",
 " PNG, JPEG and GIF images are created using the external library libgd.",
 " PNG plots may be viewed interactively by piping the output to the",
@@ -2295,23 +2332,17 @@ START_HELP(png)
 " Blank space at the edges of the finished plot may be trimmed using the `crop`",
 " option, resulting in a smaller final image size. Default is `nocrop`.",
 "",
-" Each color must be of the form 'xrrggbb', where x is the literal character",
-" 'x' and 'rrggbb' are the red, green and blue components in hex.  For example,",
-" 'x00ff00' is green.  The background color is set first, then the border",
-" colors, then the X & Y axis colors, then the plotting colors.  The maximum",
-" number of colors that can be set is 256.",
+" The background color must be given in the form 'xrrggbb', where x is the",
+" literal character 'x' and 'rrggbb' are the red, green and blue components",
+" in hexadecimal.  For example, 'x00ff00' is green.  The specification of",
+" additional colors other than the background is deprecated.",
 "",
 "2 examples",
 "?set term png examples",
-"       set terminal png medium size 640,480 \\",
-"                        xffffff x000000 x404040 \\",
-"                        xff0000 xffa500 x66cdaa xcdb5cd \\",
-"                        xadd8e6 x0000ff xdda0dd x9500d3    # defaults",
+"       set terminal png medium size 640,480 xffffff",
 "",
 " Use the medium size built-in non-scaleable, non-rotatable font.",
-" Use white (xffffff) for the non-transparent background, black for borders,",
-" gray for the axes, and red, orange, medium aquamarine, thistle 3, light blue,",
-" blue, plum and dark violet for the first eight plotting colors.",
+" Use white (xffffff) for the non-transparent background.",
 "",
 "       set terminal png font arial 14 size 800,600",
 "",
@@ -2376,7 +2407,7 @@ TERM_TABLE_START(jpeg_driver)
     PNG_linetype, PNG_put_text, PNG_text_angle,
     PNG_justify_text, PNG_point, do_arrow, PNG_set_font,
     PNG_pointsize,
-    TERM_CAN_MULTIPLOT | TERM_BINARY | TERM_ALPHA_CHANNEL,
+    TERM_CAN_MULTIPLOT|TERM_BINARY|TERM_ALPHA_CHANNEL|TERM_LINEWIDTH|TERM_FONTSCALE,
     0 /*suspend*/, 0 /*resume*/,
     PNG_boxfill /*EAM - fillbox*/,
     PNG_linewidth /*EAM - linewidth*/
@@ -2408,12 +2439,13 @@ START_HELP(jpeg)
 "?jpeg",
 " Syntax:",
 "       set terminal jpeg ",
+"              {{no}enhanced}",
 "              {{no}interlace}",
 "              {linewidth <lw>} {dashlength <dl>} {rounded|butt}",
 "              {tiny | small | medium | large | giant}",
-"              {font \"<face> {,<pointsize>}\"} {{no}enhanced}",
+"              {font \"<face> {,<pointsize>}\"} {fontscale <scale>}",
 "              {size <x>,<y>} {{no}crop}",
-"              {<color0> <color1> <color2> ...}",
+"              {<background_color>}",
 "",
 " PNG, JPEG and GIF images are created using the external library libgd.",
 " In most cases, PNG is to be preferred for single plots, and GIF for",
@@ -2445,11 +2477,10 @@ START_HELP(jpeg)
 " Blank space at the edges of the finished plot may be trimmed using the `crop`",
 " option, resulting in a smaller final image size. Default is `nocrop`.",
 "",
-" Each color must be of the form 'xrrggbb', where x is the literal character",
-" 'x' and 'rrggbb' are the red, green and blue components in hex.  For example,",
-" 'x00ff00' is green.  The background color is set first, then the border",
-" colors, then the X & Y axis colors, then the plotting colors.  The maximum",
-" number of colors that can be set is 256.",
+" The background color must be given in the form 'xrrggbb', where x is the",
+" literal character 'x' and 'rrggbb' are the red, green and blue components",
+" in hexadecimal.  For example, 'x00ff00' is green.  The specification of",
+" additional colors other than the background is deprecated.",
 ""
 END_HELP(jpeg)
 #endif /* TERM_HELP */
@@ -2529,7 +2560,7 @@ TERM_TABLE_START(gif_driver)
     PNG_linetype, PNG_put_text, PNG_text_angle,
     PNG_justify_text, PNG_point, do_arrow, PNG_set_font,
     PNG_pointsize,
-    TERM_CAN_MULTIPLOT | TERM_BINARY,
+    TERM_CAN_MULTIPLOT|TERM_BINARY|TERM_LINEWIDTH|TERM_FONTSCALE,
     0 /*suspend*/, 0 /*resume*/,
     PNG_boxfill /*EAM - fillbox*/,
     PNG_linewidth /*EAM - linewidth*/
@@ -2562,13 +2593,14 @@ START_HELP(gif)
 "?gif",
 " Syntax:",
 "       set terminal gif ",
+"              {{no}enhanced}",
 "              {{no}transparent} {rounded|butt}",
 "              {linewidth <lw>} {dashlength <dl>}",
 "              {tiny | small | medium | large | giant}",
-"              {font \"<face> {,<pointsize>}\"} {{no}enhanced}",
+"              {font \"<face> {,<pointsize>}\"} {fontscale <scale>}",
 "              {size <x>,<y>} {{no}crop}",
 "              {animate {delay <d>} {loop <n>} {{no}optimize}}",
-"              {<color0> <color1> <color2> ...}",
+"              {<background_color>}",
 "",
 " PNG, JPEG and GIF images are created using the external library libgd.",
 " GIF plots may be viewed interactively by piping the output to the",
@@ -2628,23 +2660,17 @@ START_HELP(gif)
 " Blank space at the edges of the finished plot may be trimmed using the `crop`",
 " option, resulting in a smaller final image size. Default is `nocrop`.",
 "",
-" Each color must be of the form 'xrrggbb', where x is the literal character",
-" 'x' and 'rrggbb' are the red, green and blue components in hex.  For example,",
-" 'x00ff00' is green.  The background color is set first, then the border",
-" colors, then the X & Y axis colors, then the plotting colors.  The maximum",
-" number of colors that can be set is 256.",
+" The background color must be given in the form 'xrrggbb', where x is the",
+" literal character 'x' and 'rrggbb' are the red, green and blue components",
+" in hexadecimal.  For example, 'x00ff00' is green.  The specification of",
+" additional colors other than the background is deprecated.",
 "",
 "2 examples",
 "?set term gif examples",
-"       set terminal gif medium size 640,480 \\",
-"                        xffffff x000000 x404040 \\",
-"                        xff0000 xffa500 x66cdaa xcdb5cd \\",
-"                        xadd8e6 x0000ff xdda0dd x9500d3    # defaults",
+"       set terminal gif medium size 640,480 xffffff",
 "",
 " Use the medium size built-in non-scaleable, non-rotatable font.",
-" Use white (xffffff) for the non-transparent background, black for borders,",
-" gray for the axes, and red, orange, medium aquamarine, thistle 3, light blue,",
-" blue, plum and dark violet for the first eight plotting colors.",
+" Use white (xffffff) for the non-transparent background.",
 "",
 "       set terminal gif font arial 14 enhanced",
 "",

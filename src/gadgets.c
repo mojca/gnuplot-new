@@ -54,7 +54,7 @@ legend_key keyT = DEFAULT_KEY_PROPS;
 
 /* Description of the color box associated with CB_AXIS */
 color_box_struct color_box; /* initialized in init_color() */
-color_box_struct default_color_box = {SMCOLOR_BOX_DEFAULT, 'v', 1, LT_BLACK, LAYER_FRONT,
+color_box_struct default_color_box = {SMCOLOR_BOX_DEFAULT, 'v', 1, LT_BLACK, LAYER_FRONT, 0,
 					{screen, screen, screen, 0.90, 0.2, 0.0},
 					{screen, screen, screen, 0.05, 0.6, 0.0}};
 
@@ -97,6 +97,7 @@ struct text_label *first_label = NULL;
 
 /* Pointer to first 'set linestyle' definition in linked list */
 struct linestyle_def *first_linestyle = NULL;
+struct linestyle_def *first_perm_linestyle = NULL;
 
 /* Pointer to first 'set style arrow' definition in linked list */
 struct arrowstyle_def *first_arrowstyle = NULL;
@@ -123,16 +124,18 @@ TBOOLEAN polar = FALSE;
 /* zero threshold, may _not_ be 0! */
 double zero = ZERO;
 
-/* Status of 'set pointsize' command */
+/* Status of 'set pointsize' and 'set pointintervalbox' commands */
 double pointsize = 1.0;
+double pointintervalbox = 1.0;
 
 /* set border */
 int draw_border = 31;	/* The current settings */
 int user_border = 31;	/* What the user last set explicitly */
 int border_layer = 1;
-# define DEFAULT_BORDER_LP { 0, -2, 0, 1.0, 1.0, 0 }
+# define DEFAULT_BORDER_LP { 0, LT_BLACK, 0, 0, 1.0, 1.0, FALSE, BLACK_COLORSPEC }
 struct lp_style_type border_lp = DEFAULT_BORDER_LP;
 const struct lp_style_type default_border_lp = DEFAULT_BORDER_LP;
+const struct lp_style_type background_lp = {0, LT_BACKGROUND, 0, 0, 1.0, 0.0, FALSE, BACKGROUND_COLORSPEC};
 
 /* set clip */
 TBOOLEAN clip_lines1 = TRUE;
@@ -170,6 +173,8 @@ fill_style_type default_fillstyle = { FS_EMPTY, 100, 0, DEFAULT_COLORSPEC } ;
 #ifdef EAM_OBJECTS
 /* Default rectangle style - background fill, black border */
 struct object default_rectangle = DEFAULT_RECTANGLE_STYLE;
+struct object default_circle = DEFAULT_CIRCLE_STYLE;
+struct object default_ellipse = DEFAULT_ELLIPSE_STYLE;
 #endif
 
 /* filledcurves style options */
@@ -180,6 +185,8 @@ filledcurves_opts filledcurves_opts_func = EMPTY_FILLEDCURVES_OPTS;
 TBOOLEAN prefer_line_styles = FALSE;
 
 histogram_style histogram_opts = DEFAULT_HISTOGRAM_STYLE;
+
+boxplot_style boxplot_opts = DEFAULT_BOXPLOT_STYLE;
 
 /* WINDOWID to be filled by terminals running on X11 (x11, wxt, qt, ...) */
 int current_x11_windowid = 0;
@@ -226,10 +233,6 @@ draw_clip_line(int x1, int y1, int x2, int y2)
 {
     struct termentry *t = term;
 
-    /* HBB 20000522: I've made this routine use the clippling in
-     * clip_line(), in a movement to reduce code duplication. There
-     * was one very small difference between these two routines. See
-     * clip_line() for a comment about it, at the relevant place. */
     if (!clip_line(&x1, &y1, &x2, &y2))
 	/* clip_line() returns zero --> segment completely outside
 	 * bounding box */
@@ -344,9 +347,12 @@ clip_line(int *x1, int *y1, int *x2, int *y2)
 	    *y2 = y_intr[1];
 	}
     } else if (pos1) {		/* Only x1/y1 was out - update only it */
-	/* This is about the only real difference between this and
-	 * draw_clip_line(): it compares for '>0', here */
-	if (dx * (*x2 - x_intr[0]) + dy * (*y2 - y_intr[0]) >= 0) {
+	/* Nov 2010: When clip_line() and draw_clip_line() were consolidated in */
+	/* 2000, the test below was the only point of difference between them.  */
+	/* Unfortunately, the wrong version was kept. Now I change it back.     */
+	/* The effect of the wrong version (>= rather than >) was that a line   */
+	/* from ymin to ymax+eps was clipped to ymin,ymin rather than ymin,ymax */
+	if (dx * (*x2 - x_intr[0]) + dy * (*y2 - y_intr[0]) > 0) {
 	    *x1 = x_intr[0];
 	    *y1 = y_intr[0];
 	} else {
@@ -355,7 +361,7 @@ clip_line(int *x1, int *y1, int *x2, int *y2)
 	}
     } else {			/* Only x2/y2 was out - update only it */
 	/* Same difference here, again */
-	if (dx * (x_intr[0] - *x1) + dy * (y_intr[0] - *y1) >= 0) {
+	if (dx * (x_intr[0] - *x1) + dy * (y_intr[0] - *y1) > 0) {
 	    *x2 = x_intr[0];
 	    *y2 = y_intr[0];
 	} else {

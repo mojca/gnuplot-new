@@ -1,5 +1,5 @@
 /*
- * $Id: term.h,v 1.42 2009/01/09 00:30:35 sfeam Exp $
+ * $Id: term.h,v 1.47 2010/11/14 00:06:53 sfeam Exp $
  */
 
 /* GNUPLOT - term.h */
@@ -97,11 +97,6 @@
 /* Platform dependent part                                                  */
 /****************************************************************************/
 
-/* Amiga */
-#ifdef AMIGA
-# include "amiga.trm"
-#endif
-
 
 /* Apple Macintosh */
 #ifdef _Macintosh
@@ -117,7 +112,7 @@
 
 /****************************************************************************/
 /* MS-DOS and Windows */
-#if defined(MSDOS) || defined(_Windows) || defined(DOS386)
+#if defined(MSDOS) || defined(_Windows)
 
 /* MSDOS with emx-gcc compiler */
 # if defined(MSDOS) && defined(__EMX__)
@@ -188,16 +183,6 @@
 /* Terminals for various Unix platforms                                    */
 /***************************************************************************/
 
-/* Apollo Graphics Primitive Resource */
-#ifdef APOLLO
-/* with resizeable windows */
-# include "apollo.trm"
-#  ifdef GPR
-/* with fixed windows */
-#   include "gpr.trm"
-#  endif
-#endif /* Apollo */
-
 /* Linux VGA */
 #ifdef LINUXVGA
 # include "linux.trm"
@@ -242,8 +227,8 @@
 #endif
 
 /****************************************************************************/
-/* Terminals not relevant for MSDOS, MS-Windows, Amiga             */
-#if !(defined(MSDOS) || defined(_Windows) || defined(AMIGA))
+/* Terminals not relevant for MSDOS, MS-Windows */
+#if !(defined(MSDOS) || defined(_Windows))
 
 /* AED 512 and AED 767 graphics terminals */
 /* # include "aed.trm" */
@@ -269,7 +254,7 @@
 # include "tek.trm"
 
 
-#endif /* !MSDOS && !_Windows && !AMIGA */
+#endif /* !MSDOS && !_Windows */
 /****************************************************************************/
 
 
@@ -325,17 +310,20 @@
 /* HP2647 and 2648 */
 #include "hp2648.trm"
 
-/* HP DeskJet 500 C */
-#include "hp500c.trm"
-
 /* HP7475, HP7220 plotters, and (hopefully) lots of others */
 #include "hpgl.trm"
+
+#ifndef NO_BITMAP_SUPPORT
+/* HP DeskJet 500 C */
+#include "hp500c.trm"
 
 /* HP Laserjet II */
 #include "hpljii.trm"
 
 /* HP PrintJet */
 #include "hppj.trm"
+
+#endif /* NO_BITMAP_SUPPORT */
 
 /* Imagen laser printers */
 #include "imagen.trm"
@@ -345,9 +333,6 @@
 
 /* Frame Maker MIF 3.00 format driver */
 #include "mif.trm"
-
-/* portable bit map */
-#include "pbm.trm"
 
 /* Adobe Portable Document Format (PDF) */
 /* NOTE THAT PDF REQUIRES A SEPARATE LIBRARY : see term/pdf.trm */
@@ -379,6 +364,11 @@
 /* Vectrix 384 printer, also Tandy colour */
 /* #include "v384.trm" */
 
+#ifndef NO_BITMAP_SUPPORT
+
+/* portable bit map */
+#include "pbm.trm"
+
 /* wire printers */
 /* Epson LX-800, Star NL-10, NX-1000 and lots of others */
 #define EPSONP
@@ -402,6 +392,7 @@
 /* the common driver file for all of these */
 #include "epson.trm"
 
+#endif /* NO_BITMAP_SUPPORT */
 
 /* TeX related terminals */
 #define EMTEX
@@ -454,6 +445,10 @@
 
 #ifdef HAVE_LUA
 #include "lua.trm"
+#endif
+
+#ifdef QTTERM
+# include "qt.trm"
 #endif
 
 #endif /* !SHORT_TERMLIST */

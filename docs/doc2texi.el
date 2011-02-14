@@ -172,17 +172,17 @@ If PATTERN is omitted, it defaults to \"[ \\f\\t\\n\\r\\v]+\"."
 
             An Interactive Plotting Program
              Thomas Williams & Colin Kelley
-                Version 4.3 organized by:
+                Version 4.5 organized by:
     Hans-Bernhard Broeker, Ethan A Merritt, and others
 
    Copyright (C) 1986 - 1993, 1998, 2004   Thomas Williams, Colin Kelley
-           Copyright (C) 2004 - 2008  various authors
+           Copyright (C) 2004 - 2009  various authors
 
        Mailing list for comments: gnuplot-info@@lists.sourceforge.net
      Mailing list for bug reports: gnuplot-bugs@@lists.sourceforge.net
 
          This manual was originally prepared by Dick Crawford
-                   Version 4.3 - 21 May 2008
+                   Version 4.5 - October 2009
 
 
 Major contributors (alphabetic order):
@@ -248,8 +248,6 @@ Major contributors (alphabetic order):
 (setq d2t-terminal-list
       '("aed"
 	"ai"
-	"amiga"
-	"apollo"
 	"aquaterm"
 	"be"
 	"cairo"
@@ -412,9 +410,6 @@ particular conversion chore."
     (if (string-match "linux" system-configuration)
 	(setq d2t-terminal-list (append d2t-terminal-list
 					'("linux"))))
-    (if (string-match "amiga" system-configuration)
-	(setq d2t-terminal-list (append d2t-terminal-list
-					'("amiga"))))
     (if (string-match "canvas" system-configuration)
 	(setq d2t-terminal-list (append d2t-terminal-list
 					'("canvas"))))
@@ -448,7 +443,7 @@ particular conversion chore."
     (if (string-match "vms" system-configuration)
 	(setq d2t-terminal-list (append d2t-terminal-list
 					'("vws"))))
-    (unless (member* system-configuration '("pc" "windows" "amiga")
+    (unless (member* system-configuration '("pc" "windows")
 		     :test 'string-match)
       (setq d2t-terminal-list
 	    (append d2t-terminal-list

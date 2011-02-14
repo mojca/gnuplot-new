@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.cpp,v 1.74 2009/06/13 05:23:56 sfeam Exp $
+ * $Id: wxt_gui.cpp,v 1.79 2010/03/18 04:52:53 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_gui.cpp */
@@ -158,6 +158,7 @@ BEGIN_EVENT_TABLE( wxtPanel, wxPanel )
 	EVT_MIDDLE_UP( wxtPanel::OnMiddleUp )
 	EVT_RIGHT_DOWN( wxtPanel::OnRightDown )
 	EVT_RIGHT_UP( wxtPanel::OnRightUp )
+	EVT_MOUSEWHEEL( wxtPanel::OnMouseWheel )
 	EVT_CHAR( wxtPanel::OnKeyDownChar )
 #endif /*USE_MOUSE*/
 END_EVENT_TABLE()
@@ -483,16 +484,16 @@ void wxtFrame::OnConfig( wxCommandEvent& WXUNUSED( event ) )
 /* toolbar event : Help */
 void wxtFrame::OnHelp( wxCommandEvent& WXUNUSED( event ) )
 {
-	wxMessageBox( wxString(wxT("You are using an interactive terminal "\
-		"based on wxWidgets for the interface, Cairo "\
-		"for the drawing facilities, and Pango for the text layouts.\n"\
-		"Please note that toolbar icons in the terminal "\
-		"don't reflect the whole range of mousing "\
-		"possibilities in the terminal.\n"\
-		"Hit 'h' in the plot window "\
-		"and a help message for mouse commands "\
-		"will appear in the gnuplot console.\n"\
-		"See also 'help mouse'.\n")),
+	wxMessageBox( wxString(wxT("You are using an interactive terminal ")
+		wxT("based on wxWidgets for the interface, Cairo ")
+		wxT("for the drawing facilities, and Pango for the text layouts.\n")
+		wxT("Please note that toolbar icons in the terminal ")
+		wxT("don't reflect the whole range of mousing ")
+		wxT("possibilities in the terminal.\n")
+		wxT("Hit 'h' in the plot window ")
+		wxT("and a help message for mouse commands ")
+		wxT("will appear in the gnuplot console.\n")
+		wxT("See also 'help mouse'.\n")),
 		wxT("wxWidgets terminal help"), wxOK | wxICON_INFORMATION, this );
 }
 
@@ -931,6 +932,16 @@ void wxtPanel::OnRightUp( wxMouseEvent& event )
 	}
 }
 
+/* mouse wheel event */
+void wxtPanel::OnMouseWheel( wxMouseEvent& event )
+{
+	UpdateModifiers(event);
+
+	wxt_exec_event(GE_buttonpress, 0, 0, 
+			event.GetWheelRotation() > 0 ? 4 : 5, 
+			0, this->GetId());
+}
+
 /* the state of the modifiers is checked each time a key is pressed instead of
  * tracking the press and release events of the modifiers keys, because the
  * window manager catches some combinations, like ctrl+F1, and thus we do not
@@ -1289,7 +1300,7 @@ wxtConfigDialog::wxtConfigDialog(wxWindow* parent)
 	: wxDialog(parent, -1, wxT("Terminal configuration"), wxDefaultPosition, wxDefaultSize,
                    wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
 {
-/* 	wxStaticBox *sb = new wxStaticBox( this, wxID_ANY, _T("&Explanation"),
+/* 	wxStaticBox *sb = new wxStaticBox( this, wxID_ANY, wxT("&Explanation"),
 		wxDefaultPosition, wxDefaultSize );
 	wxStaticBoxSizer *wrapping_sizer = new wxStaticBoxSizer( sb, wxVERTICAL );
 	wxStaticText *text1 = new wxStaticText(this, wxID_ANY,
@@ -1306,13 +1317,13 @@ wxtConfigDialog::wxtConfigDialog(wxWindow* parent)
 	pConfig->Read(wxT("hinting"),&hinting_setting);
 
 	wxCheckBox *check1 = new wxCheckBox (this, wxID_ANY,
-		_T("Put the window at the top of your desktop after each plot (raise)"),
+		wxT("Put the window at the top of your desktop after each plot (raise)"),
 		wxDefaultPosition, wxDefaultSize, 0, wxGenericValidator(&raise_setting));
 	wxCheckBox *check2 = new wxCheckBox (this, wxID_ANY,
-		_T("Don't quit until all windows are closed (persist)"),
+		wxT("Don't quit until all windows are closed (persist)"),
 		wxDefaultPosition, wxDefaultSize, 0, wxGenericValidator(&persist_setting));
 	wxCheckBox *check3 = new wxCheckBox (this, wxID_ANY,
-		_T("Replace 'q' by <ctrl>+'q' and <space> by <ctrl>+<space> (ctrl)"),
+		wxT("Replace 'q' by <ctrl>+'q' and <space> by <ctrl>+<space> (ctrl)"),
 		wxDefaultPosition, wxDefaultSize, 0, wxGenericValidator(&ctrl_setting));
 
 	wxString choices[3];
@@ -1321,7 +1332,7 @@ wxtConfigDialog::wxtConfigDialog(wxWindow* parent)
 	choices[2] = wxT("Antialiasing and oversampling");
 
 	wxStaticBox *sb2 = new wxStaticBox( this, wxID_ANY,
-		_T("Rendering options (applied to the next plot)"),
+		wxT("Rendering options (applied to the next plot)"),
 		wxDefaultPosition, wxDefaultSize );
 	wxStaticBoxSizer *box_sizer2 = new wxStaticBoxSizer( sb2, wxVERTICAL );
 
@@ -1790,7 +1801,7 @@ void wxt_put_text(unsigned int x, unsigned int y, const char * string)
 		wxt_command_push(temp_command);
 
 		/* set up the global variables needed by enhanced_recursion() */
-		enhanced_fontscale = 1.0;
+		enhanced_fontscale = wxt_set_fontscale;
 		strncpy(enhanced_escape_format, "%c", sizeof(enhanced_escape_format));
 
 		/* Set the recursion going. We say to keep going until a
@@ -1801,7 +1812,8 @@ void wxt_put_text(unsigned int x, unsigned int y, const char * string)
 		* we get stuck in an infinite loop) and try again. */
 
 		while (*(string = enhanced_recursion((char*)string, TRUE, wxt_current_plot->fontname,
-				wxt_current_plot->fontsize, 0.0, TRUE, TRUE, 0))) {
+				wxt_current_plot->fontsize * wxt_set_fontscale, 
+				0.0, TRUE, TRUE, 0))) {
 			wxt_enhanced_flush();
 
 			/* we can only get here if *str == '}' */
@@ -1904,12 +1916,13 @@ int wxt_set_font (const char *font)
 			fontsize = wxt_set_fontsize;
 	}
 
-
 	/* Reset the term variables (hchar, vchar, h_tic, v_tic).
 	 * They may be taken into account in next plot commands */
-	gp_cairo_set_font(wxt_current_plot, fontname, fontsize);
+	gp_cairo_set_font(wxt_current_plot, fontname, fontsize * wxt_set_fontscale);
 	gp_cairo_set_termvar(wxt_current_plot, &(term->v_char),
 	                                       &(term->h_char));
+	gp_cairo_set_font(wxt_current_plot, fontname, fontsize);
+
 	wxt_MutexGuiLeave();
 	wxt_sigint_check();
 	wxt_sigint_restore();
@@ -1917,7 +1930,7 @@ int wxt_set_font (const char *font)
 	/* Note : we must take '\0' (EndOfLine) into account */
 	temp_command.string = new char[strlen(fontname)+1];
 	strcpy(temp_command.string, fontname);
-	temp_command.integer_value = fontsize;
+	temp_command.integer_value = fontsize * wxt_set_fontscale;
 
 	wxt_command_push(temp_command);
 	/* the returned int is not used anywhere */
@@ -2443,7 +2456,8 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 		gp_cairo_enhanced_flush(&plot);
 		return;
 	case command_enhanced_open :
-		gp_cairo_enhanced_open(&plot, command.string, command.double_value, command.double_value2, command.integer_value2 & 1, (command.integer_value2 & 2) >> 1, command.integer_value);
+		gp_cairo_enhanced_open(&plot, command.string, command.double_value,
+				command.double_value2, command.integer_value2 & 1, (command.integer_value2 & 2) >> 1, command.integer_value);
 		return;
 	case command_enhanced_writec :
 		gp_cairo_enhanced_writec(&plot, command.integer_value);
@@ -3115,24 +3129,22 @@ int wxt_waitforinput()
  * the terminal events are directly processed when they are received */
 int wxt_waitforinput()
 {
-#ifdef WGP_CONSOLE
+#ifdef _Windows
 	if (paused_for_mouse) {
 		MSG msg;
 		BOOL ret;
-
 		while ((ret = GetMessage(&msg, NULL, 0, 0)) != 0) {
 			if (ret == -1)
 				break;
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
-
 			if (!paused_for_mouse)
 				break;
 		}
 		return '\0';
 	}
 	else
-#endif /* WGP_CONSOLE */
+#endif /* _Windows */
 		return getch();
 }
 #endif /* WXT_MONOTHREADED || WXT_MULTITHREADED */

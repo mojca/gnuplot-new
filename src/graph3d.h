@@ -1,5 +1,5 @@
 /*
- * $Id: graph3d.h,v 1.38 2009/04/12 22:27:04 sfeam Exp $
+ * $Id: graph3d.h,v 1.40 2010/09/16 05:56:49 sfeam Exp $
  */
 
 /* GNUPLOT - graph3d.h */
@@ -53,13 +53,15 @@
 /* Type definitions */
 
 typedef enum en_dgrid3d_mode {
+    DGRID3D_DEFAULT,
     DGRID3D_QNORM,
     DGRID3D_SPLINES,
     DGRID3D_GAUSS,
     DGRID3D_EXP,
     DGRID3D_CAUCHY,
     DGRID3D_BOX,
-    DGRID3D_HANN
+    DGRID3D_HANN,
+    DGRID3D_OTHER
 } t_dgrid3d_mode;
 
 typedef enum en_contour_placement {
@@ -145,6 +147,7 @@ extern float surface_rot_z;
 extern float surface_rot_x;
 extern float surface_scale;
 extern float surface_zscale;
+extern float surface_lscale;
 extern int splot_map;
 
 typedef struct { 

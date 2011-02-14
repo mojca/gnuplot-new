@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.222 2009/05/30 20:08:44 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.243 2011/01/23 23:01:33 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graph3d.c */
@@ -95,6 +95,7 @@ float surface_rot_z = 30.0;
 float surface_rot_x = 60.0;
 float surface_scale = 1.0;
 float surface_zscale = 1.0;
+float surface_lscale = 0.0;
 
 /* Set by 'set view map': */
 int splot_map = FALSE;
@@ -137,11 +138,11 @@ static void draw_3d_graphbox __PROTO((struct surface_points * plot,
 				      WHICHGRID whichgrid, int current_layer));
 /* HBB 20010118: these should be static, but can't --- HP-UX assembler bug */
 void xtick_callback __PROTO((AXIS_INDEX, double place, char *text,
-			     struct lp_style_type grid));
+			     struct lp_style_type grid, struct ticmark *userlabels));
 void ytick_callback __PROTO((AXIS_INDEX, double place, char *text,
-			     struct lp_style_type grid));
+			     struct lp_style_type grid, struct ticmark *userlabels));
 void ztick_callback __PROTO((AXIS_INDEX, double place, char *text,
-			     struct lp_style_type grid));
+			     struct lp_style_type grid, struct ticmark *userlabels));
 
 static int find_maxl_cntr __PROTO((struct gnuplot_contours * contours, int *count));
 static int find_maxl_keys3d __PROTO((struct surface_points *plots, int count, int *kcnt));
@@ -153,7 +154,6 @@ static void key_sample_point __PROTO((int xl, int yl, int pointtype));
 static void key_sample_line_pm3d __PROTO((struct surface_points *plot, int xl, int yl));
 static void key_sample_point_pm3d __PROTO((struct surface_points *plot, int xl, int yl, int pointtype));
 static TBOOLEAN can_pm3d = FALSE;
-static TBOOLEAN rgb_from_column = FALSE;
 static void key_text __PROTO((int xl, int yl, char *text));
 static void check_for_variable_color __PROTO((struct surface_points *plot, struct coordinate *point));
 
@@ -162,38 +162,9 @@ static void place_arrows3d __PROTO((int));
 static void place_labels3d __PROTO((struct text_label * listhead, int layer));
 static int map3d_getposition __PROTO((struct position* pos, const char* what, double* xpos, double* ypos, double* zpos));
 
-/*
- * The Amiga SAS/C 6.2 compiler moans about macro envocations causing
- * multiple calls to functions. I converted these macros to inline
- * functions coping with the problem without loosing speed.
- * (MGR, 1993)
- */
-#ifdef AMIGA_SC_6_1
-GP_INLINE static TBOOLEAN
-i_inrange(int z, int min, int max)
-{
-    return ((min < max)
-	    ? ((z >= min) && (z <= max))
-	    : ((z >= max) && (z <= min)));
-}
-
-GP_INLINE static double
-f_max(double a, double b)
-{
-    return (max(a, b));
-}
-
-GP_INLINE static double
-f_min(double a, double b)
-{
-    return (min(a, b));
-}
-
-#else
 # define f_max(a,b) GPMAX((a),(b))
 # define f_min(a,b) GPMIN((a),(b))
 # define i_inrange(z,a,b) inrange((z),(a),(b))
-#endif
 
 #define apx_eq(x,y) (fabs(x-y) < 0.001)
 #define ABS(x) ((x) >= 0 ? (x) : -(x))
@@ -468,6 +439,10 @@ boundary3d(struct surface_points *plots, int count)
     if (rmargin.scalex == screen || lmargin.scalex == screen)
 	xscaler = (plot_bounds.xright - plot_bounds.xleft) / surface_scale;
 
+    /* EAM Jul 2010 - prevent infinite loop or divide-by-zero if scaling is bad */
+    if (yscaler == 0) yscaler = 1;
+    if (xscaler == 0) xscaler = 1;
+
     /* HBB 20011011: 'set size {square|ratio}' for splots */
     if (splot_map && aspect_ratio != 0.0) {
 	double current_aspect_ratio;
@@ -576,7 +551,7 @@ place_arrows3d(int layer)
 	    continue;
 	if (get_arrow3d(this_arrow, &sx, &sy, &ex, &ey)) {
 	    term_apply_lp_properties(&(this_arrow->arrow_properties.lp_properties));
-	    apply_head_properties(&(this_arrow->arrow_properties));
+	    apply_3dhead_properties(&(this_arrow->arrow_properties));
 	    draw_clip_arrow(sx, sy, ex, ey, this_arrow->arrow_properties.head);
 	} else {
 	    FPRINTF((stderr,"place_arrows3d: skipping out-of-bounds arrow\n"));
@@ -634,14 +609,14 @@ do_3dplot(
      *      graph_error("all points undefined!");
      */
 
+    /* absolute or relative placement of xyplane along z */
+    if (xyplane.absolute)
+	base_z = AXIS_LOG_VALUE(0, xyplane.z);
+    else
+	base_z = Z_AXIS.min - (Z_AXIS.max - Z_AXIS.min) * xyplane.z;
+
     /* If we are to draw the bottom grid make sure zmin is updated properly. */
     if (X_AXIS.ticmode || Y_AXIS.ticmode || some_grid_selected()) {
-	/* absolute or relative placement */
-	if (xyplane.absolute)
-	    base_z = AXIS_LOG_VALUE(0, xyplane.z);
-	else
-	    base_z = Z_AXIS.min
-		- (Z_AXIS.max - Z_AXIS.min) * xyplane.z;
 	if (Z_AXIS.range_flags & RANGE_REVERSE) {
 	    floor_z = GPMAX(Z_AXIS.min, base_z);
 	    ceiling_z = GPMIN(Z_AXIS.max, base_z);
@@ -650,7 +625,7 @@ do_3dplot(
 	    ceiling_z = GPMAX(Z_AXIS.max, base_z);
 	}
     } else {
-	floor_z = base_z = Z_AXIS.min;
+	floor_z = Z_AXIS.min;
 	ceiling_z = Z_AXIS.max;
     }
 
@@ -841,12 +816,10 @@ do_3dplot(
     if (term->layer)
 	(term->layer)(TERM_LAYER_FRONTTEXT);
 
-#ifndef LITE
     if (hidden3d && draw_surface && !quick) {
 	init_hidden_line_removal();
 	reset_hidden_line_removal();
     }
-#endif /* not LITE */
 
     /* WORK OUT KEY SETTINGS AND DO KEY TITLE / BOX */
 
@@ -972,10 +945,8 @@ do_3dplot(
 
     /* DRAW SURFACES AND CONTOURS */
 
-#ifndef LITE
     if (hidden3d && (hidden3d_layer == LAYER_BACK) && draw_surface && !quick)
 	plot3d_hidden(plots, pcount);
-#endif /* not LITE */
 
     /* Set up bookkeeping for the individual key titles */
 #define NEXT_KEY_LINE()					\
@@ -1025,15 +996,23 @@ do_3dplot(
 	    if (term->layer)
 		(term->layer)(TERM_LAYER_BEFORE_PLOT);
 
+#if (0)
+	    /* Versions through 4.4.0 used this to limit depth-sorting of pm3d */
+	    /* surfaces to those which are adjacent in the splot command. Why? */
 	    if (pm3d_order_depth && this_plot->plot_style != PM3DSURFACE)
 		pm3d_depth_queue_flush(); /* draw pending plots */
+#endif
 
 	    lkey = (key->visible && this_plot->title && this_plot->title[0]
 				 && !this_plot->title_is_suppressed);
 
 	    if (lkey) {
-		/* EAM - force key text to black, then restore */
-		(*t->linetype)(LT_BLACK);
+		if (key->textcolor.type != TC_DEFAULT)
+		    /* Draw key text in same color as key title */
+		    apply_pm3dcolor(&key->textcolor, t);
+		else
+		    /* Draw key text in black */
+		    (*t->linetype)(LT_BLACK);
 		ignore_enhanced(this_plot->title_no_enhanced);
 		key_text(xl, yl, this_plot->title);
 		ignore_enhanced(FALSE);
@@ -1079,9 +1058,13 @@ do_3dplot(
 	    case XYERRORBARS:	/* ignored; treat like points */
 	    case BOXXYERROR:	/* HBB: ignore these as well */
 	    case BOXERROR:
-	    case CANDLESTICKS:	/* HBB: dito */
+	    case CANDLESTICKS:	/* HBB: ditto */
+	    case BOXPLOT:
 	    case FINANCEBARS:
+#ifdef EAM_OBJECTS
 	    case CIRCLES:
+	    case ELLIPSES:
+#endif
 	    case POINTSTYLE:
 		if (draw_surface && !this_plot->opt_out_of_surface) {
 		    if (lkey) {
@@ -1231,25 +1214,20 @@ do_3dplot(
 		    case XYERRORBARS:	/* ignored; treat like points */
 		    case BOXERROR:	/* HBB: ignore these as well */
 		    case BOXXYERROR:
-		    case CANDLESTICKS:	/* HBB: dito */
+		    case CANDLESTICKS:	/* HBB: ditto */
+		    case BOXPLOT:
 		    case FINANCEBARS:
+#ifdef EAM_OBJECTS
 		    case CIRCLES:
+		    case ELLIPSES:
+#endif
 		    case POINTSTYLE:
-			if (this_plot->lp_properties.use_palette)
-			    key_sample_point_pm3d(this_plot, xl, yl, this_plot->lp_properties.p_type);
-			else
 			key_sample_point(xl, yl, this_plot->lp_properties.p_type);
 			break;
 		    case LINESPOINTS:
-			if (this_plot->lp_properties.use_palette)
-			    key_sample_line_pm3d(this_plot, xl, yl);
-			else
 			key_sample_line(xl, yl);
 			break;
 		    case DOTS:
-			if (this_plot->lp_properties.use_palette)
-			    key_sample_point_pm3d(this_plot, xl, yl, this_plot->lp_properties.p_type);
-			else
 			key_sample_point(xl, yl, -1);
 			break;
 
@@ -1267,14 +1245,17 @@ do_3dplot(
 			if (use_palette && thiscontour_lp_properties.pm3d_color.type == TC_Z)
 			    set_color( cb2gray( z2cb(cntrs->z) ) );
 			else {
-			    if (prefer_line_styles && label_contours) {
-				struct lp_style_type ls = thiscontour_lp_properties;
-				lp_use_properties(&ls, ++thiscontour_lp_properties.l_type);
-				term_apply_lp_properties(&ls);
-			    } else {
-				(*t->linetype) (++thiscontour_lp_properties.l_type);
-				thiscontour_lp_properties.use_palette = 0;
+			    struct lp_style_type ls = thiscontour_lp_properties;
+			    if (thiscontour_lp_properties.l_type == LT_COLORFROMCOLUMN) {
+		    		thiscontour_lp_properties.l_type = 0;
+				thiscontour_lp_properties.use_palette = TRUE;
 			    }
+			    if (prefer_line_styles && label_contours)
+				lp_use_properties(&ls, ++thiscontour_lp_properties.l_type+1);
+			    else
+				load_linetype(&ls, ++thiscontour_lp_properties.l_type+1);
+			    thiscontour_lp_properties.pm3d_color = ls.pm3d_color;
+			    term_apply_lp_properties(&thiscontour_lp_properties);
 			}
 
 			if (key->visible) {
@@ -1301,18 +1282,16 @@ do_3dplot(
 			    case BOXERROR:		/* HBB: treat these likewise */
 			    case BOXXYERROR:
 			    case CANDLESTICKS:	/* HBB: ditto */
+			    case BOXPLOT:
 			    case FINANCEBARS:
+#ifdef EAM_OBJECTS
 			    case CIRCLES:
+			    case ELLIPSES:
+#endif
 			    case POINTSTYLE:
-				if (this_plot->lp_properties.use_palette)
-				    key_sample_point_pm3d(this_plot, xl, yl, this_plot->lp_properties.p_type);
-				else
 				    key_sample_point(xl, yl, this_plot->lp_properties.p_type);
 				break;
 			    case DOTS:
-				if (this_plot->lp_properties.use_palette)
-				    key_sample_point_pm3d(this_plot, xl, yl, this_plot->lp_properties.p_type);
-				else
 				    key_sample_point(xl, yl, -1);
 				break;
 
@@ -1357,7 +1336,10 @@ do_3dplot(
 		    case BOXXYERROR:
 		    case CANDLESTICKS:
 		    case FINANCEBARS:
+#ifdef EAM_OBJECTS
 		    case CIRCLES:
+		    case ELLIPSES:		    
+#endif
 			/* treat all the above like points */
 		    case DOTS:
 		    case POINTSTYLE:
@@ -1382,10 +1364,8 @@ do_3dplot(
 	pm3d_depth_queue_flush(); /* draw pending plots */
     }
 
-#ifndef LITE
     if (hidden3d && (hidden3d_layer == LAYER_FRONT) && draw_surface && !quick)
 	plot3d_hidden(plots, pcount);
-#endif /* not LITE */
 
     /* DRAW GRID AND BORDER */
 #ifndef USE_GRID_LAYERS
@@ -1439,11 +1419,10 @@ do_3dplot(
 
     term_end_plot();
 
-#ifndef LITE
     if (hidden3d && draw_surface) {
 	term_hidden_line_removal();
     }
-#endif /* not LITE */
+
 }
 
 
@@ -1458,7 +1437,7 @@ plot3d_impulses(struct surface_points *plot)
     struct iso_curve *icrvs = plot->iso_crvs;
     int colortype = plot->lp_properties.pm3d_color.type;
 
-    rgb_from_column = can_pm3d && plot->pm3d_color_from_column
+    TBOOLEAN rgb_from_column = can_pm3d && plot->pm3d_color_from_column
 			&& plot->lp_properties.pm3d_color.value < 0.0;
 
     if (colortype == TC_RGB && !rgb_from_column)
@@ -1552,14 +1531,13 @@ plot3d_lines(struct surface_points *plot)
     struct iso_curve *icrvs = plot->iso_crvs;
     struct coordinate GPHUGE *points;
     double lx[2], ly[2], lz[2];	/* two edge points */
+    TBOOLEAN rgb_from_column;
 
-#ifndef LITE
 /* These are handled elsewhere.  */
     if (plot->has_grid_topology && hidden3d)
 	return;
-#endif /* not LITE */
 
-    rgb_from_column = can_pm3d && plot->pm3d_color_from_column
+    rgb_from_column = plot->pm3d_color_from_column
 			&& plot->lp_properties.pm3d_color.type == TC_RGB
 			&& plot->lp_properties.pm3d_color.value < 0.0;
 
@@ -1570,7 +1548,7 @@ plot3d_lines(struct surface_points *plot)
 
 	    if (rgb_from_column)
 		set_rgbcolor((int)points[i].CRD_COLOR);
-	    else if (can_pm3d && plot->lp_properties.pm3d_color.type == TC_LINESTYLE) {
+	    else if (plot->lp_properties.pm3d_color.type == TC_LINESTYLE) {
 		plot->lp_properties.pm3d_color.lt = (int)(points[i].CRD_COLOR);
 		apply_pm3dcolor(&(plot->lp_properties.pm3d_color), term);
 	    }
@@ -1688,11 +1666,9 @@ plot3d_lines_pm3d(struct surface_points *plot)
 	return;
     }
 
-#ifndef LITE
-/* These are handled elsewhere.  */
+    /* These are handled elsewhere.  */
     if (plot->has_grid_topology && hidden3d)
 	return;
-#endif /* not LITE */
 
     /* split the bunch of scans in two sets in
      * which the scans are already depth ordered */
@@ -1841,7 +1817,8 @@ plot3d_points(struct surface_points *plot, int p_type)
     while (icrvs) {
 	struct coordinate GPHUGE *point;
 	int colortype = plot->lp_properties.pm3d_color.type;
-	rgb_from_column = plot->pm3d_color_from_column
+	TBOOLEAN rgb_from_column = plot->pm3d_color_from_column
+			&& colortype == TC_RGB
 			&& plot->lp_properties.pm3d_color.value < 0.0;
 
 	/* Apply constant color outside of the loop */
@@ -1881,7 +1858,7 @@ cntr3d_impulses(struct gnuplot_contours *cntr, struct lp_style_type *lp)
 	for (i = 0; i < cntr->num_pts; i++) {
 	    map3d_xyz(cntr->coords[i].x, cntr->coords[i].y, cntr->coords[i].z,
 		      &vertex_on_surface);
-	    map3d_xyz(cntr->coords[i].x, cntr->coords[i].y, base_z,
+	    map3d_xyz(cntr->coords[i].x, cntr->coords[i].y, 0.0,
 		      &vertex_on_base);
 	    /* HBB 20010822: Provide correct color-coding for
 	     * "linetype palette" PM3D mode */
@@ -1907,13 +1884,6 @@ cntr3d_lines(struct gnuplot_contours *cntr, struct lp_style_type *lp)
     BoundingBox *clip_save = clip_area;
     if (splot_map)
 	clip_area = &plot_bounds;
-
-    /* user may prefer explicit line styles */
-    if (prefer_line_styles && label_contours) {
-	struct lp_style_type ls = *lp;
-	lp_use_properties(&ls, lp->l_type);
-	lp = &ls;
-    }
 
     if (draw_contour & CONTOUR_SRF) {
 	map3d_xyz(cntr->coords[0].x, cntr->coords[0].y, cntr->coords[0].z,
@@ -2064,7 +2034,7 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 {
     int x, y;		/* point in terminal coordinates */
     struct termentry *t = term;
-    BoundingBox *clip_save;
+    BoundingBox *clip_save = clip_area;
 
     if (draw_border && splot_map) {
 	if (border_layer == current_layer) {
@@ -2277,10 +2247,8 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
     if (whichgrid == BORDERONLY)
 	return;
 
-    if (splot_map) {
-	clip_save = clip_area;
+    if (splot_map)
 	clip_area = NULL;
-    }
 
     /* Draw ticlabels and axis labels. x axis, first:*/
     if (X_AXIS.ticmode || X_AXIS.label.text) {
@@ -2609,7 +2577,8 @@ xtick_callback(
     AXIS_INDEX axis,
     double place,
     char *text,
-    struct lp_style_type grid)	/* linetype or -2 for none */
+    struct lp_style_type grid,		/* linetype or -2 for none */
+    struct ticmark *userlabels)	/* currently ignored in 3D plots */
 {
     vertex v1, v2;
     double scale = (text ? axis_array[axis].ticscale : axis_array[axis].miniticscale) * (axis_array[axis].tic_in ? 1 : -1);
@@ -2691,7 +2660,8 @@ ytick_callback(
     AXIS_INDEX axis,
     double place,
     char *text,
-    struct lp_style_type grid)
+    struct lp_style_type grid,
+    struct ticmark *userlabels)	/* currently ignored in 3D plots */
 {
     vertex v1, v2;
     double scale = (text ? axis_array[axis].ticscale : axis_array[axis].miniticscale) * (axis_array[axis].tic_in ? 1 : -1);
@@ -2773,7 +2743,8 @@ ztick_callback(
     AXIS_INDEX axis,
     double place,
     char *text,
-    struct lp_style_type grid)
+    struct lp_style_type grid,
+    struct ticmark *userlabels)	/* currently ignored in 3D plots */
 {
     /* HBB: inserted some ()'s to shut up gcc -Wall, here and below */
     int len = (text ? axis_array[axis].ticscale : axis_array[axis].miniticscale)
@@ -3089,9 +3060,12 @@ key_sample_line_pm3d(struct surface_points *plot, int xl, int yl)
     int i = 1, x1 = xl + key_sample_left, x2;
     double cbmin, cbmax;
     double gray, gray_from, gray_to, gray_step;
+    int colortype = plot->lp_properties.pm3d_color.type;
 
     /* If plot uses a constant color, set it here and then let simpler routine take over */
-    if (plot->lp_properties.use_palette && plot->lp_properties.pm3d_color.type == TC_RGB) {
+    if ((colortype == TC_RGB && plot->lp_properties.pm3d_color.value >= 0.0)
+    || (colortype == TC_LT)
+    || (colortype == TC_LINESTYLE && plot->lp_properties.l_type != LT_COLORFROMCOLUMN)) {
 	apply_pm3dcolor(&(plot->lp_properties.pm3d_color), term);
 	key_sample_line(xl,yl);
 	return;
@@ -3141,15 +3115,19 @@ key_sample_point_pm3d(
     int i = 0, x1 = xl + key_sample_left, x2;
     double cbmin, cbmax;
     double gray, gray_from, gray_to, gray_step;
+    int colortype = plot->lp_properties.pm3d_color.type;
     /* rule for number of steps: 3*char_width*pointsize or char_width for dots,
      * but at least 3 points */
     double step = term->h_char * (pointtype == -1 ? 1 : 3*(1+(pointsize-1)/2));
     int steps = (int)(((double)(key_sample_right - key_sample_left)) / step + 0.5);
+
     if (steps < 2) steps = 2;
     step = ((double)(key_sample_right - key_sample_left)) / steps;
 
     /* If plot uses a constant color, set it here and then let simpler routine take over */
-    if (plot->lp_properties.use_palette && plot->lp_properties.pm3d_color.type == TC_RGB) {
+    if ((colortype == TC_RGB && plot->lp_properties.pm3d_color.value >= 0.0)
+    || (colortype == TC_LT)
+    || (colortype == TC_LINESTYLE && plot->lp_properties.l_type != LT_COLORFROMCOLUMN)) {
 	apply_pm3dcolor(&(plot->lp_properties.pm3d_color), term);
 	key_sample_point(xl,yl,pointtype);
 	return;
@@ -3202,7 +3180,7 @@ plot3d_vectors(struct surface_points *plot)
 
     /* Only necessary once because all arrows equal */
     term_apply_lp_properties(&(plot->arrow_properties.lp_properties));
-    apply_head_properties(&(plot->arrow_properties));
+    apply_3dhead_properties(&(plot->arrow_properties));
 
     for (i = 0; i < plot->iso_crvs->p_count; i++) {
 	
@@ -3226,7 +3204,7 @@ check_for_variable_color(struct surface_points *plot, struct coordinate *point)
 
     switch( colortype ) {
     case TC_RGB:
-	if (rgb_from_column)
+	if (plot->pm3d_color_from_column)
 	    set_rgbcolor( (int)point->CRD_COLOR );
 	break;
     case TC_Z:

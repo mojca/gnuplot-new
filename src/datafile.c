@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: datafile.c,v 1.172 2009/04/13 03:07:46 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: datafile.c,v 1.193 2010/11/07 11:54:23 juhaszp Exp $"); }
 #endif
 
 /* GNUPLOT - datafile.c */
@@ -74,8 +74,6 @@ static char *RCSid() { return RCSid("$Id: datafile.c,v 1.172 2009/04/13 03:07:46
  *    int df_no_tic_specs - count of additional ticlabel columns
  *    int df_line_number  - for error reporting
  *    int df_datum        - increases with each data point
- *    TBOOLEAN df_binary  - it's a binary file
- *        [ might change this to return value from df_open() ]
  *    int df_eof          - end of file
  *
  * functions
@@ -201,7 +199,8 @@ int df_line_number;
 int df_datum;                   /* suggested x value if none given */
 AXIS_INDEX df_axis[MAXDATACOLS];
 TBOOLEAN df_matrix = FALSE;     /* indicates if data originated from a 2D or 3D format */
-TBOOLEAN df_binary = FALSE;     /* this is a binary file */
+
+void *df_datablock;		/* pixel data from an external library (e.g. libgd) */
 
 /* jev -- the 'thru' function --- NULL means no dummy vars active */
 /* HBB 990829: moved this here, from command.c */
@@ -433,13 +432,17 @@ static void (*binary_input_function)(void);	/* Will point to one of the above */
 static void auto_filetype_function(void){};	/* Just a placeholder for auto    */
 
 struct gen_ftable df_bin_filetype_table[] = {
-    {"gpbin", gpbin_filetype_function},
-    {"raw", raw_filetype_function},
-    {"rgb", raw_filetype_function},
-    {"bin", raw_filetype_function},
     {"avs", avs_filetype_function},
+    {"bin", raw_filetype_function},
     {"edf", edf_filetype_function},
     {"ehf", edf_filetype_function},
+    {"gif", gif_filetype_function},
+    {"gpbin", gpbin_filetype_function},
+    {"jpeg", jpeg_filetype_function},
+    {"jpg", jpeg_filetype_function},
+    {"png", png_filetype_function},
+    {"raw", raw_filetype_function},
+    {"rgb", raw_filetype_function},
     {"auto", auto_filetype_function},
     {NULL,   NULL}
 };
@@ -695,7 +698,7 @@ df_tokenise(char *s)
 		df_column[df_no_cols].good = DF_STRINGDATA;
 	} else if (check_missing(s)) {
 	    df_column[df_no_cols].good = DF_MISSING;
-	    df_column[df_no_cols].datum = atof("NaN");
+	    df_column[df_no_cols].datum = not_a_number();
 	} else {
 	    int used;
 	    int count;
@@ -784,10 +787,9 @@ df_tokenise(char *s)
 	    }
 
 	    df_column[df_no_cols].good = count == 1 ? DF_GOOD : DF_BAD;
-#ifdef HAVE_ISNAN
+
 	    if (isnan(df_column[df_no_cols].datum))
 		df_column[df_no_cols].good = DF_BAD;
-#endif
 	}
 
 	++df_no_cols;
@@ -977,6 +979,9 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
     lastpoint = lastline = MAXINT;
 
     df_binary_file = df_matrix_file = FALSE;
+    df_datablock = NULL;
+    df_num_bin_records = 0;
+    df_matrix = FALSE;
 
     df_eof = 0;
 
@@ -1003,8 +1008,6 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
     if (ydata_func.at) /* something for thru (?) */
 	free_at(ydata_func.at);
     ydata_func.at = NULL;
-
-    df_binary = df_matrix = FALSE;
 
     /* pm 25.11.2001 allow any order of options */
     while (!END_OF_COMMAND) {
@@ -1194,11 +1197,6 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
 		     && ((df_bin_record[0].cart_dim[1] > 0)
 			 || (df_bin_record[0].scan_dim[1] > 0))));
 
-    /* Same idea, but try removing this one.  I can't see why it is
-     * important for the rest of the program to know if if the data
-     * came from a binary file. (DJS 20 Aug 2004) */
-    df_binary = df_binary_file;
-
     return df_no_use_specs;
 }
 
@@ -1220,13 +1218,21 @@ df_close()
 	free_at(ydata_func.at);
 	ydata_func.at = NULL;
     }
-    /*{{{  free any use expression storage */
+
+    /* free any use expression storage */
     for (i = 0; i < MAXDATACOLS; ++i)
 	if (use_spec[i].at) {
 	    free_at(use_spec[i].at);
 	    use_spec[i].at = NULL;
 	}
-    /*}}} */
+
+    /* free binary matrix data */
+    if (df_matrix) {
+	for (i = 0; i < df_num_bin_records; i++) {
+	    free(df_bin_record[i].memory_data);
+	    df_bin_record[i].memory_data = NULL;
+	}
+    }
 
     if (!mixed_data_fp) {
 #if defined(PIPES)
@@ -1321,10 +1327,13 @@ plot_option_index()
     df_lower_index = int_expression();
     if (equals(c_token, ":")) {
 	++c_token;
-	df_upper_index = abs(int_expression());
-	if (df_upper_index < df_lower_index)
-	    int_error(c_token, "Upper index should be bigger than lower index");
-
+	if (equals(c_token, ":")) {
+	    df_upper_index = MAXINT;    /* If end index not specified */
+	} else {
+	    df_upper_index = int_expression();
+	    if (df_upper_index < df_lower_index)
+		int_error(c_token, "Upper index should be bigger than lower index");
+	}
 	if (equals(c_token, ":")) {
 	    ++c_token;
 	    df_index_step = abs(int_expression());
@@ -1708,7 +1717,12 @@ df_readascii(double v[], int max)
 		if (use_spec[output].expected_type >= CT_XTICLABEL) {
 		    int axis, axcol;
 		    float xpos;
-		    
+		   
+		    /* EAM FIXME - skip columnstacked histograms also */
+		    if (df_current_plot) {
+			if (df_current_plot->plot_style == BOXPLOT)
+				continue;
+		    }
 		    switch (use_spec[output].expected_type) {
 			default:
 			case CT_XTICLABEL:
@@ -1747,7 +1761,7 @@ df_readascii(double v[], int max)
 
 		    if (df_current_plot
 			&& df_current_plot->plot_style == HISTOGRAMS) {
-			if (output == 2) /* Can only happen for HT_ERRORBARS */
+			if (output > 1) /* Can only happen for HT_ERRORBARS */
 			    xpos = (axcol == 0) ? df_datum : v[axcol-1];
 			xpos += df_current_plot->histogram->start;
 		    }
@@ -1779,12 +1793,30 @@ df_readascii(double v[], int max)
 
 		if (use_spec[output].at) {
 		    struct value a;
+		    TBOOLEAN timefield = FALSE;
 		    /* no dummy values to set up prior to... */
 		    evaluate_inside_using = TRUE;
 		    evaluate_at(use_spec[output].at, &a);
 		    evaluate_inside_using = FALSE;
 		    if (undefined)
 			return DF_UNDEFINED;    /* store undefined point in plot */
+
+		    if ((df_axis[output] != NO_AXIS)
+			   && axis_array[df_axis[output]].is_timedata)
+			timefield = TRUE;
+
+		    if (timefield && (a.type != STRING)
+		    && !strcmp(axis_array[df_axis[output]].timefmt,"%s")) {
+			/* Handle the case of timefmt "%s" which expects a string */
+			/* containing a number. If evaluate_at() above returned a */
+			/* bare number then we must convert it to a sting before  */
+			/* falling through to the usual processing case.          */
+			/* NB: We only accept time values of +/- 10^12 seconds.   */
+			char *timestring = gp_alloc(20,"timestring");
+			sprintf(timestring,"%16.3f",real(&a));
+			a.type = STRING;
+			a.v.string_val = timestring;
+		    }
 
 		    if (a.type == STRING) {
 			/* This string value will get parsed as if it were a data column */
@@ -1799,17 +1831,19 @@ df_readascii(double v[], int max)
 			}
 
 			/* Check for timefmt string generated by a function */
-			if ((df_axis[output] != NO_AXIS)
-			   && axis_array[df_axis[output]].is_timedata) {
+			if (timefield) {
 			    struct tm tm;
+			    double usec = 0.0;
 			    if (gstrptime(a.v.string_val,
-					  axis_array[df_axis[output]].timefmt, &tm))
-				v[output] = (double) gtimegm(&tm);
+					  axis_array[df_axis[output]].timefmt, &tm, &usec))
+				v[output] = (double) gtimegm(&tm) + usec;
 			    else /* FIXME - Is this correct? Is it needed? */
 				line_okay = 0;
 			}
 			gpfree_string(&a);
-		    } else
+		    }
+
+		    else
 			v[output] = real(&a);
 
 		} else if (column == -2) {
@@ -1823,11 +1857,12 @@ df_readascii(double v[], int max)
 		else if ((df_axis[output] != NO_AXIS)
 			 && (axis_array[df_axis[output]].is_timedata)) {
 		    struct tm tm;
+		    double usec = 0.0;
 		    if (column > df_no_cols ||
 			df_column[column - 1].good == DF_MISSING ||
 			!df_column[column - 1].position ||
 			!gstrptime(df_column[column - 1].position,
-				   axis_array[df_axis[output]].timefmt, &tm)
+				   axis_array[df_axis[output]].timefmt, &tm, &usec)
 			) {
 			/* line bad only if user explicitly asked for this column */
 			if (df_no_use_specs)
@@ -1836,7 +1871,7 @@ df_readascii(double v[], int max)
 			/* return or ignore line depending on line_okay */
 			break;
 		    }
-		    v[output] = (double) gtimegm(&tm);
+		    v[output] = (double) gtimegm(&tm) + usec;
 
 		} else if (use_spec[output].expected_type == CT_STRING) {
 		    /* Do nothing. */
@@ -1863,6 +1898,15 @@ df_readascii(double v[], int max)
 			    line_okay = 0;
 			break;      /* return or ignore depending on line_okay */
 		    }
+		}
+		/* Special case to make 'using 0' et al. to work with labels */
+		if (use_spec[output].expected_type == CT_STRING
+		    && (column == -2 || column == -1 || column == 0)) {
+		    char *s = gp_alloc(32*sizeof(char), 
+			"temp string for label hack");
+		    sprintf(s, "%d", (int)v[output]);
+		    free(df_stringexpression[output]);
+		    df_tokens[output] = df_stringexpression[output] = s;
 		}
 	    }
 	}
@@ -2081,10 +2125,22 @@ f_stringcolumn(union argument *arg)
     (void) pop(&a);
     column = (int) real(&a);
 
-    if (!evaluate_inside_using)
+    if (!evaluate_inside_using || df_matrix)
 	int_error(c_token-1, "stringcolumn() called from invalid context");
 
-    if (column < 1 || column > df_no_cols) {
+    if (column == -2) {
+	char temp_string[32];
+	sprintf(temp_string, "%d", df_current_index);
+	push(Gstring(&a, temp_string ));
+    } else if (column == -1) {
+	char temp_string[32];
+	sprintf(temp_string, "%d", line_count);
+	push(Gstring(&a, temp_string ));
+    } else if (column == 0) {      /* $0 = df_datum */
+	char temp_string[32];
+	sprintf(temp_string, "%d", df_datum);
+	push(Gstring(&a, temp_string ));
+    } else if (column < 1 || column > df_no_cols) {
 	undefined = TRUE;
 	push(&a);               /* any objection to this ? */
     } else {
@@ -2132,6 +2188,7 @@ f_timecolumn(union argument *arg)
     int column, spec;
     AXIS_INDEX whichaxis;
     struct tm tm;
+    double usec = 0.0;
     int limit = (df_no_use_specs ? df_no_use_specs : MAXDATACOLS);
 
     (void) arg;                 /* avoid -Wunused warning */
@@ -2157,11 +2214,11 @@ f_timecolumn(union argument *arg)
 	|| column > df_no_cols
 	|| !df_column[column - 1].position
 	|| !gstrptime(df_column[column - 1].position,
-		      axis_array[whichaxis].timefmt, &tm)) {
+		      axis_array[whichaxis].timefmt, &tm, &usec)) {
 	undefined = TRUE;
 	push(&a);               /* any objection to this ? */
     } else
-	push(Gcomplex(&a, gtimegm(&tm), 0.0));
+	push(Gcomplex(&a, gtimegm(&tm) + usec, 0.0));
 }
 
 /*}}} */
@@ -2626,7 +2683,7 @@ df_insert_scanned_use_spec(int uspec)
 /* Not the most elegant way of defining the default columns, but I prefer
  * this to switch and conditional statements when there are so many styles.
  */
-#define LAST_PLOT_STYLE 27
+#define LAST_PLOT_STYLE 29
 typedef struct df_bin_default_columns {
     PLOT_STYLE plot_style;
     short excluding_gen_coords; /* Number of columns of information excluding generated coordinates. */
@@ -2650,6 +2707,7 @@ df_bin_default_columns default_style_cols[LAST_PLOT_STYLE + 1] = {
     {VECTOR, 2, 2},
     {CANDLESTICKS, 4, 1},
     {FINANCEBARS, 4, 1},
+    {BOXPLOT, 2, 1},
     {XERRORLINES, 2, 1},
     {YERRORLINES, 2, 1},
     {XYERRORLINES, 3, 1},
@@ -2662,6 +2720,7 @@ df_bin_default_columns default_style_cols[LAST_PLOT_STYLE + 1] = {
     {RGBA_IMAGE, 4, 2}
 #ifdef EAM_OBJECTS
     , {CIRCLES, 2, 1}
+    , {ELLIPSES, 2, 3}
 #endif
 };
 
@@ -2873,6 +2932,8 @@ plot_option_binary(TBOOLEAN set_matrix, TBOOLEAN set_default)
     TBOOLEAN set_format = FALSE;
 
 	/* Binary file type must be the first word in the command following `binary`" */
+	if (df_bin_filetype_default >= 0)
+	    df_bin_filetype = df_bin_filetype_default;
 	if (almost_equals(c_token, "file$type") || (df_bin_filetype >= 0)) {
 	    int i;
 	    char file_ext[8] = {'\0','\0','\0','\0','\0','\0','\0','\0'};
@@ -2902,7 +2963,8 @@ plot_option_binary(TBOOLEAN set_matrix, TBOOLEAN set_default)
 		c_token++;
 	    }
 
-	    if (df_plot_mode != MODE_QUERY && binary_input_function == auto_filetype_function) {
+	    if (df_plot_mode != MODE_QUERY  
+	    && !strcmp("auto", df_bin_filetype_table[df_bin_filetype].key)) {
 		int i;
 		char *file_ext = strrchr(df_filename, '.');
 		if (file_ext++) {
@@ -4280,6 +4342,10 @@ df_readbinary(double v[], int max)
 		break;
 
 	    /* Read in a "column", i.e., a binary value of various types. */
+	    if (df_datablock) {
+		io_val.uc = df_libgd_get_pixel(df_M_count, df_N_count, i);
+	    } else
+
 	    if (memory_data) {
 		for (fread_ret = 0;
 		     fread_ret < df_column_bininfo[i].column.read_size;
@@ -4489,12 +4555,38 @@ df_readbinary(double v[], int max)
 		    if (undefined)
 			return DF_UNDEFINED; 
 
-		    v[output] = real(&a);
-		} else if (column == -5) {
-		    v[output] = o_value*delta[2];
-		} else if (column == -4) {
+		    if (a.type == STRING) {
+			if (use_spec[output].expected_type == CT_STRING) {
+			    char *s = gp_alloc(strlen(a.v.string_val)+3,"quote");
+			    *s = '"';
+			    strcpy(s+1, a.v.string_val);
+			    strcat(s, "\"");
+			    free(df_stringexpression[output]);
+			    df_tokens[output] = df_stringexpression[output] = s;
+			}
+			gpfree_string(&a);
+		    }
+		    else
+			v[output] = real(&a);
+
+		} else if (column == DF_SCAN_PLANE) {
+		    if ((df_current_plot->plot_style == IMAGE)
+		    ||  (df_current_plot->plot_style == RGBIMAGE))
+			v[output] = o_value*delta[2];
+		    /* EAM August 2009
+		     * This was supposed to be "z" in a 3D grid holding a binary
+		     * value at each voxel.  But in fact the binary code does not
+		     * support 3D grids, only 2D. So this always got set to 0,
+		     * making the whole thing pretty useless except for inherently.
+		     * planar objects like 2D images.
+		     * Now I set Z to be the pixel value, which allows you
+		     * to draw surfaces described by a 2D binary array.
+		     */ 
+		    else
+			v[output] = df_column[0].datum;
+		} else if (column == DF_SCAN_LINE) {
 		    v[output] = n_value*delta[1];
-		} else if (column == -3) {
+		} else if (column == DF_SCAN_POINT) {
 		    v[output] = m_value*delta[0];
 		} else if (column == -2) {
 		    v[output] = df_current_index;
@@ -4502,27 +4594,12 @@ df_readbinary(double v[], int max)
 		    v[output] = line_count;
 		} else if (column == 0) {
 		    v[output] = df_datum;
-		} else if (column <= 0)
+		} else if (column <= 0) {
 		    int_error(NO_CARET, "internal error: unkown column type");
-		else if ((df_axis[output] != NO_AXIS)
-			 && (axis_array[df_axis[output]].is_timedata)) {
-		    struct tm tm;
-			
-		    if (column > df_no_cols
-			|| df_column[column - 1].good == DF_MISSING
-			|| !df_column[column - 1].position
-			|| !gstrptime(df_column[column - 1].position,
-				      axis_array[df_axis[output]].timefmt,
-				      &tm)) {
-			/* line bad only if user explicitly asked
-			 * for this column */
-			if (df_no_use_specs)
-			    line_okay = 0;
-			
-			/* return or ignore line depending on line_okay */
-			break;
-		    }
-		    v[output] = (double) gtimegm(&tm);
+
+		/* July 2010 - We used to have special code to handle time data. */
+		/* But time data in a binary file is just one more binary value, */
+		/* so let the general case code handle it.                       */
 		} else if ((column <= df_no_cols)
 			   && df_column[column - 1].good == DF_GOOD)
 		    v[output] = df_column[column - 1].datum;
@@ -4606,6 +4683,8 @@ df_generate_pseudodata()
     /* This code copied from that in second pass through eval_plots() */
     if (df_pseudodata == 1) {
 	static double t, t_min, t_max, t_step;
+	if (df_pseudorecord >= samples_1)
+	    return NULL;
 	if (df_pseudorecord == 0) {
 	    if (parametric || polar)
 		int_error(NO_CARET,"Pseudodata not yet implemented for polar or parametric graphs");
@@ -4621,8 +4700,7 @@ df_generate_pseudodata()
 	t = t_min + df_pseudorecord * t_step;
 	t = AXIS_DE_LOG_VALUE(x_axis, t);
 	sprintf(line,"%g",t);
-	if (++df_pseudorecord >= samples_1)
-	    return NULL;
+	++df_pseudorecord;
     }
 
     /* Pseudofile '++' returns a (samples X isosamples) grid of x,y coordinates */
@@ -4634,6 +4712,14 @@ df_generate_pseudodata()
 	double u, v;
 	AXIS_INDEX u_axis = FIRST_X_AXIS;
 	AXIS_INDEX v_axis = FIRST_Y_AXIS;
+
+	if ((df_pseudorecord >= nusteps) && (df_pseudorecord > 0)) {
+	    df_pseudorecord = 0;
+	    if (++df_pseudospan >= nvsteps)
+		return NULL;
+	    else
+		return ""; /* blank record for end of scan line */
+	}
 
 	if (df_pseudospan == 0) {
 	    if (samples_1 < 2 || samples_2 < 2 || iso_samples_1 < 2 || iso_samples_2 < 2)
@@ -4663,14 +4749,7 @@ df_generate_pseudodata()
 	u = u_min + df_pseudorecord * u_step;
 	v = v_max - df_pseudospan * v_isostep;
 	sprintf(line,"%g %g", AXIS_DE_LOG_VALUE(u_axis,u), AXIS_DE_LOG_VALUE(v_axis,v));
-
-	if (++df_pseudorecord > nusteps) {
-	    df_pseudorecord = 0;
-	    if (++df_pseudospan >= nvsteps)
-		return NULL;
-	    else
-		return ""; /* blank record for end of scan line */
-	}
+	++df_pseudorecord;
     }
 
     return line;

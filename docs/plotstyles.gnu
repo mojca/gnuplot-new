@@ -3,7 +3,7 @@
 #  EAM - July 2007
 #
 #
-set term pdfcairo mono font "Times,7" size 3.5,2.0 dashlength 0.2
+set term pdfcairo mono font "Times,12" size 3.5,2.0 dashlength 0.2
 #
 # Line and point type plots  (same data plotted)
 # ==============================================
@@ -112,6 +112,23 @@ plot '../demo/silver.dat' u 1:2:($3+$1/50.) w filledcurves above title 'above' l
                '' u 1:2 w lines lt -1 lw 1 title 'curve 1', \
                '' u 1:($3+$1/50.) w lines lt -1 lw 3 title 'curve 2'
 #
+# Boxplot
+# =======
+#
+set output 'figure_boxplot.pdf'
+reset
+set style fill solid 0.25 border -1
+set yrange [-15:165]
+set xrange [0.5:2.0]
+set xtics ("A" 1, "B" 1.5) scale 0
+set ytics nomirror
+set border 2
+set lmargin at screen 0.3
+unset key
+set style data boxplot
+plot '../demo/silver.dat' using (1):2:(.25) ps 0.3, \
+     '' using (1.5):(5*$3):(.25) ps 0.3
+#
 # Dots
 # ====
 #
@@ -145,12 +162,18 @@ set tmargin 1
 #
 set output 'figure_histclust.pdf'
 set style histogram clustered
-plot 'histopt.dat' using 1 fs solid 0.5, '' using 2 fs empty
+plot '../demo/histopt.dat' using 1 fs solid 0.5, '' using 2 fs empty
+#
+set output 'figure_histerrorbar.pdf'
+set title "Histogram with error bars" offset 0,-1
+set style fill solid border -1
+set style histogram errorbars lw 2
+plot '../demo/histerror.dat' using 2:3 fs solid 0.5 ti 'A', '' using 4:5 fs empty ti 'B'
 #
 set output 'figure_histrows.pdf'
 set style histogram rows
 set title "Rowstacked" offset 0,-1
-plot 'histopt.dat' using 1 fs solid 0.5, '' using 2 fs empty
+plot '../demo/histopt.dat' using 1 fs solid 0.5, '' using 2 fs empty
 #
 set output 'figure_histcols.pdf'
 set style histogram columns
@@ -165,7 +188,7 @@ set style line 4 lt rgb "gray70"
 set style increment user
 set style fill solid 1.0 border -1
 
-plot 'histopt.dat' using 1 ti col lt 1, '' using 2 ti col fs solid lt 1
+plot '../demo/histopt.dat' using 1 ti col lt 1, '' using 2 ti col fs solid lt 1
 set style increment system
 #
 # Circles
@@ -177,10 +200,20 @@ unset key
 set size ratio -1
 set xrange [-2.5:1.5]
 set yrange [-1:2.5]
-set xtics font "Times,5" format "%.1f" scale 0.5
-set ytics font "Times,5" format "%.1f" scale 0.5
+set xtics font "Times,10" format "%.1f" scale 0.5
+set ytics font "Times,10" format "%.1f" scale 0.5
 plot '../demo/optimize.dat' with circles lc rgb "gray" fs transparent solid 0.2 nobo,\
      '../demo/optimize.dat' u 1:2 with linespoints lw 2 pt 7 ps 0.3 lc rgb "black"
+#
+# Ellipses
+#
+reset
+set output 'figure_ellipses.pdf'
+unset xtics; unset ytics
+
+plot '../demo/ellipses.dat' u 1:2:3:4:5 with ellipses units xy title "with ellipses",\
+     '' u 1:2:3:4:5 with ellipses units xx notitle,\
+     '' u 1:2:3:4:5 with ellipses units yy notitle
 #
 # 2D heat map from an array of in-line data
 #
@@ -213,7 +246,7 @@ e
 #
 reset
 set view 75, 33, 1.0, 0.82
-set bmargin screen 0.18
+set bmargin screen 0.40
 unset key
 set samples 20, 20
 set isosamples 21, 21
@@ -264,13 +297,34 @@ set yrange [ -10 : 137 ]
 set zrange [  -1 :   1 ]
 set xyplane at -1
 set bmargin at screen 0.25
-set xtics offset 0,0 font "Times,5"
-set ytics offset 0,0 font "Times,5"
+set xtics offset 0,0 font "Times,10"
+set ytics offset 0,0 font "Times,10"
 set view 45, 25, 1.0, 1.35
 set grid
 unset key
 set format z "%.1f"
 splot '../demo/blutux.rgb' binary array=128x128 flip=y format='%uchar%uchar%uchar' with rgbimage
+
+reset
+set output "figure_scaled_image.pdf"
+set title "Rescaled image used as plot element"
+
+set xrange [ -10 : 150 ]
+set yrange [   0 : 200 ]
+set y2range[   0 : 200 ]
+
+set y2tics
+set grid y
+
+set key title "Building Heights\nby Neighborhood"
+set key box
+
+set xtics   ("NE" 72.0, "S" 42.0, "Downtown" 12.0, "Suburbs" 122.0)  scale 0.0
+
+plot '../demo/bldg.png' binary filetype=png origin=(0,0)  dx=0.5 dy=1.5 with rgbimage notitle, \
+     '../demo/bldg.png' binary filetype=png origin=(60,0) dx=0.5 dy=1 with rgbimage notitle, \
+     '../demo/bldg.png' binary filetype=png origin=(30,0) dx=0.5 dy=0.7 with rgbimage notitle, \
+     '../demo/bldg.png' binary filetype=png origin=(110,0) dx=0.5 dy=0.35 with rgbimage notitle
 
 #
 #

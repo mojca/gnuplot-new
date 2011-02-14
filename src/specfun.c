@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: specfun.c,v 1.37 2008/05/21 18:01:22 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: specfun.c,v 1.44 2010/12/30 07:23:41 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - specfun.c */
@@ -108,11 +108,15 @@ static double polevl __PROTO((double x, const double coef[], int N));
 static double p1evl __PROTO((double x, const double coef[], int N));
 static double confrac __PROTO((double a, double b, double x));
 static double ibeta __PROTO((double a, double b, double x));
+static double humlik __PROTO((double x, double y));
 static double igamma __PROTO((double a, double x));
 static double ranf __PROTO((struct value * init));
 static double inverse_error_func __PROTO((double p));
 static double inverse_normal_func __PROTO((double p));
 static double lambertw __PROTO((double x));
+static double airy_neg __PROTO(( double x ));
+static double airy_pos __PROTO((double x));
+static double expint __PROTO((double n, double x));
 #ifndef GAMMA
 static int ISNAN __PROTO((double x));
 static int ISFINITE __PROTO((double x));
@@ -548,6 +552,12 @@ lngamma(double x)
 
 #endif /* !GAMMA */
 
+/*
+ * Make all the following internal routines f_whatever() perform 
+ * autoconversion from string to numeric value.
+ */
+#define pop(x) pop_or_convert_from_string(x)
+
 void
 f_erf(union argument *arg)
 {
@@ -662,6 +672,171 @@ void f_rand(union argument *arg)
 
 #endif /* BADRAND */
 
+void
+f_voigt(union argument *arg)
+{
+    struct value a;
+    double x,y;
+    (void) arg;				/* avoid -Wunused warning */
+    y = real(pop(&a));
+    x = real(pop(&a));
+    push(Gcomplex(&a, humlik(x, y), 0.0));	
+}
+
+/*
+ * Calculate the Voigt/Faddeeva function with relative error less than 10^(-4).
+ *     (see http://www.atm.ox.ac.uk/user/wells/voigt.html)
+ *
+ * K(x,y) = \frac{y}{\pi} \int{\frac{e^{t^2}}{(x-t)^2+y^2}}dt
+ *
+ *  arguments:
+ *	x, y - real and imaginary components of complex argument
+ *  return value
+ *	real value K(x,y)
+ *
+ * Algorithm: Josef Humlíček JQSRT 27 (1982) pp 437
+ * Fortran program by J.R. Wells  JQSRT 62 (1999) pp 29-48. 
+ * Translated to C++ with f2c program and modified by Marcin Wojdyr
+ * Minor adaptations from C++ to C by E. Stambulchik
+ * Adapted for gnuplot by Tommaso Vinci
+ */
+static double humlik(double x, double y)
+{
+
+    const double c[6] = { 1.0117281,     -0.75197147,      0.012557727,
+                         0.010022008,   -2.4206814e-4,    5.0084806e-7 };
+    const double s[6] = { 1.393237,       0.23115241,     -0.15535147,
+                         0.0062183662,   9.1908299e-5,   -6.2752596e-7 };
+    const double t[6] = { 0.31424038,     0.94778839,      1.5976826,
+                                2.2795071,      3.020637,        3.8897249 };
+
+    const double rrtpi = 0.56418958; /* 1/SQRT(pi) */
+
+    double a0, d0, d2, e0, e2, e4, h0, h2, h4, h6,
+                 p0, p2, p4, p6, p8, z0, z2, z4, z6, z8;
+    double mf[6], pf[6], mq[6], pq[6], xm[6], ym[6], xp[6], yp[6];
+    double old_y = -1.;
+    bool rg1, rg2, rg3;
+    double xlim0, xlim1, xlim2, xlim3, xlim4;
+    double yq, yrrtpi;
+    double abx, xq;
+    double k;
+
+    if (y != old_y) {
+        old_y = y;
+        yq = y * y;
+        yrrtpi = y * rrtpi;
+        rg1 = true, rg2 = true, rg3 = true;
+        if (y < 70.55) {
+            xlim0 = sqrt(y * (40. - y * 3.6) + 15100.);
+            xlim1 = (y >= 8.425 ?  0. : sqrt(164. - y * (y * 1.8 + 4.3)));
+            xlim2 = 6.8 - y;
+            xlim3 = y * 2.4;
+            xlim4 = y * 18.1 + 1.65;
+            if (y <= 1e-6)
+                xlim2 = xlim1 = xlim0;
+        }
+    }
+
+    abx = fabs(x);
+    xq = abx * abx;
+
+    if (abx >= xlim0 || y >= 70.55)     /* Region 0 algorithm */
+        return yrrtpi / (xq + yq);
+
+    else if (abx >= xlim1) {            /* Humlicek W4 Region 1 */
+        if (rg1) {                      /* First point in Region 1 */
+            rg1 = false;
+            a0 = yq + 0.5;              /* Region 1 y-dependents */
+            d0 = a0 * a0;
+            d2 = yq + yq - 1.;
+        }
+        return rrtpi / (d0 + xq * (d2 + xq)) * y * (a0 + xq);
+    }
+
+    else if (abx > xlim2) {             /* Humlicek W4 Region 2 */
+        if (rg2) {                      /* First point in Region 2 */
+            rg2 = false;
+            /* Region 2 y-dependents */
+            h0 = yq * (yq * (yq * (yq + 6.) + 10.5) + 4.5) + 0.5625;
+            h2 = yq * (yq * (yq * 4. + 6.) + 9.) - 4.5;
+            h4 = 10.5 - yq * (6. - yq * 6.);
+            h6 = yq * 4. - 6.;
+            e0 = yq * (yq * (yq + 5.5) + 8.25) + 1.875;
+            e2 = yq * (yq * 3. + 1.) + 5.25;
+            e4 = h6 * 0.75;
+        }
+        return rrtpi / (h0 + xq * (h2 + xq * (h4 + xq * (h6 + xq))))
+                 * y * (e0 + xq * (e2 + xq * (e4 + xq)));
+    }
+
+    else if (abx < xlim3) {             /* Humlicek W4 Region 3 */
+        if (rg3) {                      /* First point in Region 3 */
+            rg3 = false;
+            /* Region 3 y-dependents */
+            z0 = y * (y * (y * (y * (y * (y * (y * (y * (y * (y
+                    + 13.3988) + 88.26741) + 369.1989) + 1074.409)
+                    + 2256.981) + 3447.629) + 3764.966) + 2802.87)
+                    + 1280.829) + 272.1014;
+            z2 = y * (y * (y * (y * (y * (y * (y * (y * 5.  + 53.59518)
+                    + 266.2987) + 793.4273) + 1549.675) + 2037.31)
+                    + 1758.336) + 902.3066) + 211.678;
+            z4 = y * (y * (y * (y * (y * (y * 10. + 80.39278) + 269.2916)
+                    + 479.2576) + 497.3014) + 308.1852) + 78.86585;
+            z6 = y * (y * (y * (y * 10. + 53.59518) + 92.75679)
+                    + 55.02933) + 22.03523;
+            z8 = y * (y * 5. + 13.3988) + 1.49646;
+            p0 = y * (y * (y * (y * (y * (y * (y * (y * (y * 0.3183291
+                    + 4.264678) + 27.93941) + 115.3772) + 328.2151) +
+                    662.8097) + 946.897) + 919.4955) + 549.3954)
+                    + 153.5168;
+            p2 = y * (y * (y * (y * (y * (y * (y * 1.2733163 + 12.79458)
+                    + 56.81652) + 139.4665) + 189.773) + 124.5975)
+                    - 1.322256) - 34.16955;
+            p4 = y * (y * (y * (y * (y * 1.9099744 + 12.79568)
+                    + 29.81482) + 24.01655) + 10.46332) + 2.584042;
+            p6 = y * (y * (y * 1.273316 + 4.266322) + 0.9377051)
+                    - 0.07272979;
+            p8 = y * .3183291 + 5.480304e-4;
+        }
+        return 1.7724538 / (z0 + xq * (z2 + xq * (z4 + xq * (z6 +
+                xq * (z8 + xq)))))
+                  * (p0 + xq * (p2 + xq * (p4 + xq * (p6 + xq * p8))));
+    }
+
+    else {                              /* Humlicek CPF12 algorithm */
+        double ypy0 = y + 1.5;
+        double ypy0q = ypy0 * ypy0;
+        int j;
+        for (j = 0; j <= 5; ++j) {
+            double d = x - t[j];
+            mq[j] = d * d;
+            mf[j] = 1. / (mq[j] + ypy0q);
+            xm[j] = mf[j] * d;
+            ym[j] = mf[j] * ypy0;
+            d = x + t[j];
+            pq[j] = d * d;
+            pf[j] = 1. / (pq[j] + ypy0q);
+            xp[j] = pf[j] * d;
+            yp[j] = pf[j] * ypy0;
+        }
+        k = 0.;
+        if (abx <= xlim4)               /* Humlicek CPF12 Region I */
+            for (j = 0; j <= 5; ++j)
+                k += c[j] * (ym[j]+yp[j]) - s[j] * (xm[j]-xp[j]);
+        else {                          /* Humlicek CPF12 Region II */
+            double yf = y + 3.;
+            for (j = 0; j <= 5; ++j)
+                k += (c[j] * (mq[j] * mf[j] - ym[j] * 1.5)
+                         + s[j] * yf * xm[j]) / (mq[j] + 2.25)
+                        + (c[j] * (pq[j] * pf[j] - yp[j] * 1.5)
+                           - s[j] * yf * xp[j]) / (pq[j] + 2.25);
+            k = y * k + exp(-xq);
+        }
+        return k;
+    }
+}
+
 /* ** ibeta.c
  *
  *   DESCRIBE  Approximate the incomplete beta function Ix(a, b).
@@ -686,7 +861,8 @@ void f_rand(union argument *arg)
  *
  *   XREF      lngamma()
  *
- *   BUGS      none
+ *   BUGS      This approximation is only accurate on the domain
+ *             x < (a-1)/(a+b-2)
  *
  *   REFERENCE The continued fraction expansion as given by
  *             Abramowitz and Stegun (1964) is used.
@@ -712,7 +888,12 @@ ibeta(double a, double b, double x)
 	return x;
 
     /* Swap a, b if necessary for more efficient evaluation */
-    return a < x * (a + b) ? 1.0 - confrac(b, a, 1.0 - x) : confrac(a, b, x);
+    if (a < x * (a + b)) {
+	double temp = confrac(b, a, 1.0 - x);
+	return (temp < 0.0) ? temp : 1.0 - temp;
+    } else {
+	return confrac(a, b, x);
+    }
 }
 
 static double
@@ -913,29 +1094,39 @@ ranf(struct value *init)
     static const long Xa1 = 40014L;
     static const long Xa2 = 40692L;
 
+    /* Seed values must be integer, but check for both values equal zero
+       before casting for speed */
+    if (real(init) != 0.0 || imag(init) != 0.0) {
+
+	/* Construct new seed values from input parameter */
+	long seed1cvrt = real(init);
+	long seed2cvrt = imag(init);
+	if ( real(init) != (double)seed1cvrt ||
+	     imag(init) != (double)seed2cvrt ||
+	     seed1cvrt > 017777777777L ||
+	     seed2cvrt > 017777777777L ||
+	     (seed1cvrt <= 0 && seed2cvrt != 0) ||
+	     seed2cvrt < 0 )
+	    int_error(NO_CARET,"Illegal seed value");
+	else if (seed1cvrt < 0)
+	    firsttime = 1;
+	else {
+	    seed1 = seed1cvrt;
+	    seed2 = (seed2cvrt) ? seed2cvrt : seed1cvrt;
+	    firsttime = 0;
+	}
+    }
 
     /* (Re)-Initialize seeds if necessary */
-    if ( real(init) < 0.0 || firsttime == 1) {
+    if (firsttime) {
 	firsttime = 0;
 	seed1 = 1234567890L;
 	seed2 = 1234567890L;
     }
 
-    /* Construct new seed values from input parameter */
-    /* FIXME: Ideally we should allow all 64 bits of seed to be set */
-    if (real(init) > 0.0) {
-	if (real(init) >= (double)(017777777777UL))
-	    int_error(NO_CARET,"Illegal seed value");
-	if (imag(init) >= (double)(017777777777UL))
-	    int_error(NO_CARET,"Illegal seed value");
-	seed1 = (int)real(init);
-	seed2 = (int)imag(init);
-	if (seed2 == 0)
-	    seed2 = seed1;
-    }
-    FPRINTF((stderr,"ranf: seed = %lo %lo        %ld %ld\n", seed1,seed2));
+    FPRINTF((stderr,"ranf: seed = %lo %lo        %ld %ld\n", seed1, seed2));
 
-    /* Generate pseudo random integers */
+    /* Generate pseudo random integers, which always end up positive */
     k = seed1 / 53668L;
     seed1 = Xa1 * (seed1 - k * 53668L) - k * 12211;
     if (seed1 < 0)
@@ -1922,6 +2113,203 @@ f_lambertw(union argument *arg)
     x = lambertw(x);
     if (x <= -1)
 	/* Error return from lambertw --> flag 'undefined' */
+	undefined = TRUE;
+
+    push(Gcomplex(&a, x, 0.0));
+}
+
+
+/* ------------------------------------------------------------
+   Airy Function Ai(x)
+
+   After:
+   "Two-Point Quasi-Fractional Approximations to the Airy Function Ai(x)"
+   by Pablo Martin, Ricardo Perez, Antonio L. Guerrero
+   Journal of Computational Physics 99, 337-340 (1992)
+   
+   Beware of a misprint in equation (5) in this paper: The second term in
+   parentheses must be multiplied by "x", as is clear from equation (3) 
+   and by comparison with equation (6). The implementation in this file 
+   uses the CORRECT formula (with the "x").
+
+   This is not a very high accuracy approximation, but sufficient for 
+   plotting and similar applications. Higher accuracy formulas are 
+   available, but are much more complicated (typically requiring iteration).
+
+   Added: janert (PKJ) 2009-09-05
+   ------------------------------------------------------------ */
+
+static double
+airy_neg( double x ) {
+  double z = sqrt( 0.37 + pow( fabs(x), 3.0 ) );
+  double t = (2.0/3.0)*pow( fabs(x), 1.5 );
+  double y = 0;
+
+  y += ( -0.043883564 + 0.3989422*z )*cos(t)/pow( z, 7.0/6.0 );
+  y += x*( -0.013883003 - 0.3989422*z )*sin(t)/( pow( z, 5.0/6.0 ) * 1.5 * t );
+
+  return y;
+}
+
+static double
+airy_pos( double x ) {
+  double z = sqrt( 0.0425 + pow( fabs(x), 3.0 ) );
+  double y = 0;
+
+  y += (-0.002800908 + 0.326662423*z )/pow( z, 7.0/6.0 );
+  y += x * ( -0.007232251 - 0.044567423*z )/pow( z, 11.0/6.0 );
+  y *= exp(-(2.0/3.0)*z );
+
+  return y;
+}
+
+void
+f_airy(union argument *arg)
+{
+    struct value a;
+    double x;
+
+    (void) arg;                        /* avoid -Wunused warning */
+    x = real(pop(&a));
+
+    if( x < 0 ) {
+      x = airy_neg(x);
+    } else {
+      x = airy_pos(x);
+    }
+
+    push(Gcomplex(&a, x, 0.0));
+}
+
+/* ** expint.c
+ *
+ *   DESCRIBE  Approximate the exponential integral function
+ *
+ *                           
+ *                       /inf   -n    -zt
+ *             E_n(z) =  |     t   * e    dt (n = 0, 1, 2, ...)
+ *                       /1
+ *
+ *
+ *   CALL      p = expint(n, z)
+ *
+ *             double    n    >= 0  
+ *             double    z    >= 0  
+ *               also: n must be an integer
+ *                     either z > 0 or n > 1
+ *
+ *   WARNING   none
+ *
+ *   RETURN    double    p    > 0
+ *                            -1.0 on error condition
+ *
+ *   REFERENCE Abramowitz and Stegun (1964)
+ *
+ * Copyright (c) 2010 James R. Van Zandt, jrvz@comcast.net
+ */
+
+static double
+expint(double n, double z)
+{
+    double y; /* the answer */
+
+    {
+      /* Test for admissibility of arguments */
+      double junk;
+      if (n < 0 || z < 0 || modf(n,&junk))
+	return -1.0;
+      if (z == 0 && n < 2)
+	return -1.0;
+    }
+
+    /* special cases */
+    if (n == 0) return exp(-z)/z;
+    if (z == 0) return 1/(n-1);
+
+    /* for z=3, CF requires 36 terms and series requires 29 */
+
+    if (z > 3)
+      {	/* For large z, use continued fraction (Abramowitz & Stegun 5.1.22):
+	   E_n(z) = exp(-z)(1/(z+n/(1+1/(z+(n+1)/1+2/(z+...)))))
+	   The CF is valid and stable for z>0, and efficient for z>1 or so.  */
+	double n0, n1, n2, n3, d0, d1, d2, d3, y_prev=1;
+	int i;
+
+	n0 = 0; n1 = 1;
+	d0 = 1; d1 = z;
+
+	for (i=0; i<333; i++)
+	  { /* evaluate the CF "top down" using the recurrence
+	       relations for the numerators and denominators of
+	       successive convergents */
+	    n2 = n0*(n+i) + n1;
+	    d2 = d0*(n+i) + d1;
+	    n3 = n1*(1+i) + n2*z;
+	    d3 = d1*(1+i) + d2*z;
+	    y = n3/d3;
+	    if (y == y_prev) break;
+	    y_prev = y;
+	    n0 = n2; n1 = n3;
+	    d0 = d2; d1 = d3;
+
+	    /* Re-scale terms in continued fraction if terms are large */
+	    if (d3 >= OFLOW) {
+
+		n0 /= OFLOW;
+		n1 /= OFLOW;
+		d0 /= OFLOW;
+		d1 /= OFLOW;
+	    }
+	  }
+	y = exp(-z)*y;
+      }
+    
+    else
+      {	/* For small z, use series (Abramowitz & Stegun 5.1.12):
+	   E_1(z) = -\gamma + \ln z +
+	            \sum_{m=1}^\infty { (-z)^m \over (m) m! }   
+	   The series is valid for z>0, and efficient for z<4 or so.  */
+
+	/* from Abramowitz & Stegun, Table 1.1 */
+	double euler_constant = .577215664901532860606512;
+  
+	double y_prev = 0;
+	double t, m;
+
+	y = -euler_constant - log(z);
+	t = 1;
+	for (m = 1; m<333; m++)
+	  {
+	    t = -t*z/m;
+	    y = y - t/m;
+	    if (y == y_prev) break; 
+	    y_prev = y;
+	  }
+
+	/* For n > 1, use recurrence relation (Abramowitz & Stegun 5.1.14):
+	   n E_{n+1}(z) + z E_n(z) = e^{-z}, n >= 1 
+	   The recurrence is unstable for increasing n and z>4 or so,
+	   but okay for z<3.  */
+  
+	for (m=1; m<n; m++)
+	  y=(exp(-z) - z*y)/m;
+      }
+    return y;
+}
+
+void
+f_expint(union argument *arg)
+{
+    struct value a;
+    double n, x;
+
+    (void) arg;                        /* avoid -Wunused warning */
+    x = real(pop(&a));
+    n = real(pop(&a));
+
+    x = expint(n, x);
+    if (x <= -1)
+	/* Error return from expint --> flag 'undefined' */
 	undefined = TRUE;
 
     push(Gcomplex(&a, x, 0.0));

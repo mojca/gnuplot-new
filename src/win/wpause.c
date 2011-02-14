@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: wpause.c,v 1.15 2007/02/10 00:14:54 mikulik Exp $"); }
+static char *RCSid() { return RCSid("$Id: wpause.c,v 1.17 2010/12/14 23:02:23 broeker Exp $"); }
 #endif
 
 /* GNUPLOT - win/wpause.c */
@@ -43,6 +43,10 @@ static char *RCSid() { return RCSid("$Id: wpause.c,v 1.15 2007/02/10 00:14:54 mi
 
 /* MessageBox ALWAYS appears in the middle of the screen so instead */
 /* we use this PauseBox so we can decide where it is to be placed */
+
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
 
 #define STRICT
 #include <windows.h>
@@ -91,12 +95,13 @@ win_sleep(DWORD dwMilliSeconds)
 
 	    /* calculate remaining time, detect overflow */
 	    t1 = GetTickCount();
-	    if (tstop > t0) 
+	    if (tstop > t0) {
 		if ((t1 >= tstop) || (t1 < t0))
 		    rc = WAIT_TIMEOUT;
-	    else
+	    } else {
 		if ((t1 >= tstop) && (t1 < t0))
 		    rc = WAIT_TIMEOUT;
+	    }
 	    t1 = tstop - t1; /* remaining time to wait */
 	}
     } while(rc != WAIT_TIMEOUT);

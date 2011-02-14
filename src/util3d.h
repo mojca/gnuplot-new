@@ -1,5 +1,5 @@
 /*
- * $Id: util3d.h,v 1.15 2008/07/08 04:56:45 sfeam Exp $
+ * $Id: util3d.h,v 1.18 2010/09/27 19:27:10 sfeam Exp $
  */
 
 /* GNUPLOT - util3d.h */
@@ -43,6 +43,7 @@
  * known */
 
 #include "graph3d.h"
+#include "graphics.h"	/* only needed for apply_head_properties() */
 
 /* All the necessary information about one vertex. */
 typedef struct vertex {
@@ -84,8 +85,10 @@ void map3d_xyz __PROTO((double x, double y, double z, p_vertex out));
 void map3d_xy __PROTO((double x, double y, double z, int *xt, int *yt));
 void map3d_xy_double __PROTO((double x, double y, double z, double *xt, double *yt));
 void draw3d_line __PROTO((p_vertex, p_vertex, struct lp_style_type *));
-void draw3d_line_unconditional __PROTO((p_vertex, p_vertex, struct lp_style_type *, int));
+void draw3d_line_unconditional __PROTO((p_vertex, p_vertex, struct lp_style_type *, t_colorspec));
 void draw3d_point __PROTO((p_vertex v, struct lp_style_type *lp));
+void apply_3dhead_properties __PROTO((struct arrow_style_type *arrow_properties));
+
 
 /* HBB NEW 20031218: 3D polyline support */
 void polyline3d_start __PROTO((p_vertex v1));

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: tabulate.c,v 1.7 2008/03/23 18:55:21 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: tabulate.c,v 1.11 2009/12/28 23:57:54 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - tabulate.c */
@@ -58,16 +58,29 @@ static FILE *outfile;
 
 /* This routine got longer than is reasonable for a macro */
 #define OUTPUT_NUMBER(x,y) output_number(x,y,buffer)
+#define BUFFERSIZE 150
 
 static void
 output_number(double coord, int axis, char *buffer) {
+    /* treat timedata and "%s" output format as a special case:
+     * return a number.
+     * "%s" in combination with any other character is treated
+     * like a normal time format specifier and handled in time.c
+     */
+    if (axis_array[axis].is_timedata &&
+        strcmp(axis_array[axis].formatstring, "%s") == 0) {
+	gprintf(buffer, BUFFERSIZE, "%.0f", 1.0, coord);
+    } else
     if (axis_array[axis].is_timedata) {
 	buffer[0] = '"';
-	gstrftime(buffer+1, 150, axis_array[axis].formatstring, coord);
+	gstrftime(buffer+1, BUFFERSIZE-1, axis_array[axis].formatstring, coord);
 	while (strchr(buffer,'\n')) {*(strchr(buffer,'\n')) = ' ';}
 	strcat(buffer,"\"");
+    } else if (axis_array[axis].log) {
+	double x = pow(axis_array[axis].base, coord);
+	gprintf(buffer, BUFFERSIZE, axis_array[axis].formatstring, 1.0, x);
     } else
-    	gprintf(buffer, 150, axis_array[axis].formatstring, 1.0, coord);
+	gprintf(buffer, BUFFERSIZE, axis_array[axis].formatstring, 1.0, coord);
     fputs(buffer, outfile);
     fputc(' ', outfile);
 }
@@ -77,7 +90,7 @@ void
 print_table(struct curve_points *current_plot, int plot_num)
 {
     int i, curve;
-    char *buffer = gp_alloc(150, "print_table: output buffer");
+    char *buffer = gp_alloc(BUFFERSIZE, "print_table: output buffer");
     outfile = (table_outfile) ? table_outfile : gpoutfile;
 
     for (curve = 0; curve < plot_num;
@@ -112,8 +125,10 @@ print_table(struct curve_points *current_plot, int plot_num)
 	    fputs("1 y2", outfile);
 	    break;
 	case FINANCEBARS:
-	case CANDLESTICKS:
 	    fputs(" open ylow yhigh yclose", outfile);
+	    break;
+	case CANDLESTICKS:
+	    fputs(" open ylow yhigh yclose width", outfile);
 	    break;
 	case LABELPOINTS:
 	    fputs(" label",outfile);
@@ -187,10 +202,15 @@ print_table(struct curve_points *current_plot, int plot_num)
 			OUTPUT_NUMBER(point->yhigh, current_plot->y_axis);
 			break;
 		    case FINANCEBARS:
+			OUTPUT_NUMBER(point->ylow, current_plot->y_axis);
+			OUTPUT_NUMBER(point->yhigh, current_plot->y_axis);
+			OUTPUT_NUMBER(point->z, current_plot->y_axis);
+			break;
 		    case CANDLESTICKS:
 			OUTPUT_NUMBER(point->ylow, current_plot->y_axis);
 			OUTPUT_NUMBER(point->yhigh, current_plot->y_axis);
 			OUTPUT_NUMBER(point->z, current_plot->y_axis);
+			OUTPUT_NUMBER(2. * (point->x - point->xlow), current_plot->x_axis);
 			break;
 		    case VECTOR:
 			OUTPUT_NUMBER((point->xhigh - point->x), current_plot->x_axis);
@@ -231,7 +251,7 @@ print_3dtable(int pcount)
     int i, surface;
     struct coordinate GPHUGE *point;
     struct coordinate GPHUGE *tail;
-    char *buffer = gp_alloc(150, "print_3dtable output buffer");
+    char *buffer = gp_alloc(BUFFERSIZE, "print_3dtable output buffer");
     outfile = (table_outfile) ? table_outfile : gpoutfile;
 
     for (surface = 0, this_plot = first_3dplot;

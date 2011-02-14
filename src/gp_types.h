@@ -1,5 +1,5 @@
 /*
- * $Id: gp_types.h,v 1.44 2009/03/26 00:49:13 sfeam Exp $
+ * $Id: gp_types.h,v 1.49 2010/10/27 04:22:43 sfeam Exp $
  */
 
 /* GNUPLOT - gp_types.h */
@@ -104,6 +104,8 @@ typedef enum PLOT_STYLE {
     , RGBIMAGE     = 26*PLOT_STYLE_BITS + 0
     , RGBA_IMAGE   = 27*PLOT_STYLE_BITS + 0
     , CIRCLES      = 28*PLOT_STYLE_BITS + PLOT_STYLE_HAS_LINE + PLOT_STYLE_HAS_FILL
+    , BOXPLOT      = 29*PLOT_STYLE_BITS + PLOT_STYLE_HAS_FILL + PLOT_STYLE_HAS_POINT
+    , ELLIPSES     = 30*PLOT_STYLE_BITS + PLOT_STYLE_HAS_LINE + PLOT_STYLE_HAS_FILL
 } PLOT_STYLE;
 
 typedef enum PLOT_SMOOTH {
@@ -115,7 +117,8 @@ typedef enum PLOT_SMOOTH {
     SMOOTH_UNIQUE,
     SMOOTH_FREQUENCY,
     SMOOTH_CUMULATIVE,
-    SMOOTH_KDENSITY
+    SMOOTH_KDENSITY,
+    SMOOTH_CUMULATIVE_NORMALISED
 } PLOT_SMOOTH;
 
 /* FIXME HBB 20000521: 'struct value' and its part, 'cmplx', should go
@@ -163,19 +166,6 @@ typedef struct coordinate {
     coordval x, y, z;
     coordval ylow, yhigh;	/* ignored in 3d */
     coordval xlow, xhigh;	/* also ignored in 3d */
-#if 0
-    /* Currently color information is overloaded onto yhigh by the defintion
-     * of CRD_COLOR. This saves 8 bytes, but limits the use of variable color
-     * data to plot styles that do not already use the full set of coordinate
-     * fields (e.g. candlesticks, boxxyerror).
-     */
-    coordval color;		/* PM3D's color value to be used */
-				/* Note: accessed only if NEED_PALETTE(this_plot) */
-#endif
-#if defined(WIN16) || (defined(MSDOS) && defined(__TURBOC__))
-    /* FIXME HBB 20020301: addition of 'color' probably broke this */
-    char pad[2];		/* pad to 32 byte boundary */
-#endif
 } coordinate;
 
 #endif /* GNUPLOT_GPTYPES_H */

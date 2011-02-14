@@ -1,5 +1,5 @@
 /*
- * $Id: hidden3d.h,v 1.10 2008/06/02 19:18:32 sfeam Exp $
+ * $Id: hidden3d.h,v 1.12 2010/07/15 04:44:03 sfeam Exp $
  */
 
 /* GNUPLOT - hidden3d.h */
@@ -46,6 +46,9 @@
 
 /* Type definitions */
 
+#define PT_ARROWHEAD -10
+#define PT_BACKARROW -11
+
 /* Variables of hidden3d.c needed by other modules: */
 
 extern TBOOLEAN disable_mouse_z;
@@ -56,13 +59,10 @@ void set_hidden3doptions __PROTO((void));
 void show_hidden3doptions __PROTO((void));
 void reset_hidden3doptions __PROTO((void));
 void save_hidden3doptions __PROTO((FILE *fp));
-#ifndef LITE
 void init_hidden_line_removal __PROTO((void));
 void reset_hidden_line_removal __PROTO((void));
 void term_hidden_line_removal __PROTO((void));
 void plot3d_hidden __PROTO((struct surface_points *plots, int pcount));
 void draw_line_hidden __PROTO((p_vertex, p_vertex, lp_style_type *));
-#endif
-
 
 #endif /* GNUPLOT_HIDDEN3D_H */

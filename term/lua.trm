@@ -1,6 +1,6 @@
 /*
- *  $Id: lua.trm,v 1.5 2009/05/26 04:23:03 sfeam Exp $
- *  $Date: 2009/05/26 04:23:03 $
+ *  $Id: lua.trm,v 1.12 2011/02/10 21:21:31 sfeam Exp $
+ *  $Date: 2011/02/10 21:21:31 $
  *  $Rev: 90 $
  */
 
@@ -43,14 +43,7 @@
 
 #include "driver.h"
 
-#define LUA_TERM_REVISON "$Rev: 96 $"
-/* FIXME: this is only valid on "X11" systems, we need our own definition here */
-#define GNUPLOT_LUA_DIR X11_DRIVER_DIR
-
-/*  TERM_CAN_DASH is new in 4.3cvs */
-#ifdef TERM_CAN_DASH
- #define GNUPLOT_LUA_4_3
-#endif
+#define LUA_TERM_REVISON "$Rev: 97 $"
 
 #ifdef TERM_REGISTER
 register_term(lua)
@@ -353,13 +346,11 @@ LUA_GP_get_all_variables(lua_State *L) {
           lua_pushstring(L, "real");
           lua_rawseti(L, -2, 2);
         }
-#ifdef HAVE_ISNAN
+
         if (isnan(val->v.cmplx_val.real)) {
           lua_pushnil(L);
           lua_rawseti(L, -2, 3);
-        } else
-#endif
-        {
+        } else {
           lua_pushnumber(L, val->v.cmplx_val.real);
           lua_rawseti(L, -2, 3);
         }
@@ -440,14 +431,12 @@ LUA_get_term_vars(void) {
   lua_pop(L, 1);
   
   lua_getfield(L, luaterm, "flags");
-  term->flags = (lua_isnumber(L, -1)) ? (int)lua_tointeger(L, -1) : TERM_BINARY;
+  term->flags |= (lua_isnumber(L, -1)) ? (int)lua_tointeger(L, -1) : TERM_BINARY;
   lua_pop(L, 1);
 
-#ifdef GNUPLOT_LUA_4_3
   lua_getfield(L, luaterm, "tscale");
   term->tscale = (lua_isnumber(L, -1)) ? (double)lua_tonumber(L, -1) : LUA_TSCALE;
   lua_pop(L, 1);
-#endif
 }
 
 static void
@@ -466,11 +455,7 @@ LUA_set_term_vars() {
   /* set term.lua_ident */
   lua_pushstring(L, lua_ident);
   lua_setfield(L, luaterm, "lua_ident");
-#ifdef GNUPLOT_LUA_4_3
   lua_pushboolean(L, 1);
-#else
-  lua_pushboolean(L, 0);
-#endif
   lua_setfield(L, luaterm, "IS_GNUPLOT_43");
   
   /* some static definitions */
@@ -484,16 +469,16 @@ LUA_set_term_vars() {
   lua_setfield(L, luaterm, "TERM_INIT_ON_REPLOT");
   lua_pushinteger(L, TERM_IS_POSTSCRIPT);     /* post, next, pslatex, etc        */
   lua_setfield(L, luaterm, "TERM_IS_POSTSCRIPT");
+  lua_pushinteger(L, TERM_IS_LATEX);     /* post, next, pslatex, etc        */
+  lua_setfield(L, luaterm, "TERM_IS_LATEX");
   lua_pushinteger(L, TERM_ENHANCED_TEXT);     /* enhanced text mode is enabled   */
   lua_setfield(L, luaterm, "TERM_ENHANCED_TEXT");
   lua_pushinteger(L, TERM_NO_OUTPUTFILE);     /* terminal doesnt write to a file */
   lua_setfield(L, luaterm, "TERM_NO_OUTPUTFILE");
   lua_pushinteger(L, TERM_CAN_CLIP);          /* terminal does its own clipping  */
   lua_setfield(L, luaterm, "TERM_CAN_CLIP");
-#ifdef GNUPLOT_LUA_4_3
   lua_pushinteger(L, TERM_CAN_DASH);          /* terminal knows dashed lines */
   lua_setfield(L, luaterm, "TERM_CAN_DASH");
-#endif
 }
 
 static int
@@ -544,9 +529,26 @@ LUA_init_lua(void)
   luaL_openlibs(L); /* Load Lua libraries */
   luaopen_debug(L);
 
-  gp_lua_dir = getenv("GNUPLOT_DRIVER_DIR");
+  gp_lua_dir = getenv("GNUPLOT_LUA_DIR");
+
+# if defined(_Windows)
+  if (!gp_lua_dir) {
+    int len;
+    /* retrieve path relative to the gnuplot executable whose path is in 
+     * szModuleName (winmain.c) */
+    gp_lua_dir = gp_alloc(strlen((char*) szPackageDir)
+                            + strlen(GNUPLOT_LUA_DIR) + 2, "luadir");
+    strcpy(gp_lua_dir, (char*) szPackageDir);
+    len = strlen(gp_lua_dir);
+    if (*gp_lua_dir && gp_lua_dir[len-1] != '\\' &&   gp_lua_dir[len-1] != '/')
+	strcat(gp_lua_dir, "\\");
+    /* GNUPLOT_LUA_DIR is _relative_ path */
+    strcat(gp_lua_dir, GNUPLOT_LUA_DIR);
+    }
+#else /* not _Windows */
   if (!gp_lua_dir)
     gp_lua_dir = GNUPLOT_LUA_DIR;
+#endif
 
   if (stat(LUA_script, &stat_buf) || !S_ISREG(stat_buf.st_mode)) {
     script_fqn = gp_alloc(strlen(gp_lua_dir) + strlen(LUA_script) + 2, "LUA_script path");
@@ -643,14 +645,12 @@ LUA_get_fillstyle(int style) {
       case FS_PATTERN:
         style_str = "PATTERN";
         break;
-#ifdef GNUPLOT_LUA_4_3
       case FS_TRANSPARENT_SOLID:
         style_str = "TRANSPARENT_SOLID";
         break;
       case FS_TRANSPARENT_PATTERN:
         style_str = "TRANSPARENT_PATTERN";
         break;
-#endif
       case FS_DEFAULT:
         style_str = "DEFAULT";
         break;
@@ -710,7 +710,9 @@ LUA_options()
       LUA_script = s;
     }
     opt_str = gp_input_line + token[c_token].start_index;
-    c_token = num_tokens;
+    while (!END_OF_COMMAND)
+	c_token++;
+
   } else {
     LUA_close();
     int_error(NO_CARET, "No Lua driver name or file name given!");
@@ -724,12 +726,16 @@ LUA_options()
   }
 
   if(LUA_init_luaterm_function("options")) {
+    /* isolate the "set term ...;" part of the command line */
+    opt_str = gp_strdup(opt_str);
+    opt_str[ strcspn(opt_str,";") ] = '\0';
     lua_pushstring(L, opt_str);
     lua_pushinteger(L, need_init);
     lua_pushinteger(L, tc_off);
     LUA_call_report(lua_pcall(L, 3, 1, tb));
     lua_term_result = (int)lua_tointeger(L, -1);
     lua_pop(L, 1);
+    free(opt_str);
   }
 
   LUA_get_term_vars();
@@ -898,6 +904,7 @@ LUA_justify_text(enum JUSTIFY mode)
       case LEFT:
         m = "left";
         break;
+      default:
       case CENTRE:
         m = "center";
         break;
@@ -1009,8 +1016,7 @@ LUA_set_color (t_colorspec *colorspec)
 {
 
   double gray = colorspec->value;
-  rgb_color color;
-
+  rgb_color color = {0.,0.,0.};
 
   if(LUA_init_luaterm_function("set_color")) {
     if (colorspec->type == TC_FRAC) {
@@ -1083,7 +1089,6 @@ LUA_layer (t_termlayer syncpoint)
       case TERM_LAYER_END_TEXT:   /* Close off front or back macro before leaving */
         m = "end_text";
         break;
-#ifdef GNUPLOT_LUA_4_3
       case TERM_LAYER_BEFORE_PLOT:  /* Close off front or back macro before leaving */
         m = "before_plot";
         break;
@@ -1096,7 +1101,6 @@ LUA_layer (t_termlayer syncpoint)
       case TERM_LAYER_END_GRID:
         m = "end_grid";
         break;
-#endif
       default:
         m = "";
         break;
@@ -1198,9 +1202,7 @@ TERM_TABLE_START(lua_driver)
    , 0, 0, 0
    , LUA_layer
    , LUA_path
-#ifdef GNUPLOT_LUA_4_3
    , LUA_TSCALE
-#endif
 TERM_TABLE_END(lua_driver)
 
 #undef LAST_TERM
@@ -1213,7 +1215,7 @@ TERM_TABLE_START(tikz_driver)
     LUA_text, null_scale, LUA_graphics, LUA_move, LUA_vector,
     LUA_linetype, LUA_put_text, LUA_text_angle,
     LUA_justify_text, LUA_point, LUA_arrow, LUA_set_font, LUA_pointsize,
-    TERM_BINARY /*flags*/, 0 /*suspend*/, 0 /*resume*/,
+    TERM_BINARY|TERM_IS_LATEX /*flags*/, 0 /*suspend*/, 0 /*resume*/,
     LUA_boxfill, LUA_linewidth
 #ifdef USE_MOUSE
     , 0, 0, 0, 0, 0
@@ -1224,9 +1226,7 @@ TERM_TABLE_START(tikz_driver)
    , 0, 0, 0
    , LUA_layer
    , LUA_path
-#ifdef GNUPLOT_LUA_4_3
    , LUA_TSCALE
-#endif
 TERM_TABLE_END(tikz_driver)
 
 #undef LAST_TERM
@@ -1258,8 +1258,7 @@ START_HELP(lua)
 " A 'target name' or 'file name' (in quotes) for a script is mandatory.",
 " If a 'target name' for the script is given, the terminal will look for",
 " \"gnuplot-<target name>.lua\" in the local directory and on failure in",
-" the 'libexec' directory of the gnuplot installation or via the",
-" environmental variable GNUPLOT_DRIVER_DIR.",
+" the environmental variable GNUPLOT_LUA_DIR.",
 "",
 " All arguments will be provided to the selected script for further",
 " evaluation. E.g. 'set term lua tikz help' will cause the script itself",

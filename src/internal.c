@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: internal.c,v 1.51 2008/09/25 18:33:50 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: internal.c,v 1.61 2011/01/08 13:37:26 broeker Exp $"); }
 #endif
 
 /* GNUPLOT - internal.c */
@@ -40,7 +40,7 @@ static char *RCSid() { return RCSid("$Id: internal.c,v 1.51 2008/09/25 18:33:50 
 #include "stdfn.h"
 #include "alloc.h"
 #include "util.h"		/* for int_error() */
-# include "gp_time.h"           /* for str(p|f)time */
+#include "gp_time.h"           /* for str(p|f)time */
 #include "command.h"            /* for do_system_func */
 #include "variable.h" /* For locale handling */
 
@@ -66,6 +66,13 @@ GP_MATHERR( STRUCT_EXCEPTION_P_X )
 }
 
 #define BAD_DEFAULT default: int_error(NO_CARET, "internal error : type neither INT or CMPLX"); return;
+
+static int recursion_depth = 0;
+void
+eval_reset_after_error()
+{
+    recursion_depth = 0;
+}
 
 void
 f_push(union argument *x)
@@ -124,18 +131,23 @@ f_call(union argument *x)
     struct value save_dummy;
 
     udf = x->udf_arg;
-    if (!udf->at) {		/* undefined */
+    if (!udf->at)
 	int_error(NO_CARET, "undefined function: %s", udf->udf_name);
-    }
+
     save_dummy = udf->dummy_values[0];
     (void) pop(&(udf->dummy_values[0]));
 
     if (udf->dummy_num != 1)
 	int_error(NO_CARET, "function %s requires %d variables", udf->udf_name, udf->dummy_num);
 
+    if (recursion_depth++ > STACK_DEPTH)
+	int_error(NO_CARET, "recursion depth limit exceeded");
+
     execute_at(udf->at);
     gpfree_string(&udf->dummy_values[0]);
     udf->dummy_values[0] = save_dummy;
+
+    recursion_depth--;
 }
 
 
@@ -652,6 +664,7 @@ void
 f_mult(union argument *arg)
 {
     struct value a, b, result;
+    double product;
 
     (void) arg;			/* avoid -Wunused warning */
     (void) pop(&b);
@@ -661,8 +674,11 @@ f_mult(union argument *arg)
     case INTGR:
 	switch (b.type) {
 	case INTGR:
-	    (void) Ginteger(&result, a.v.int_val *
-			    b.v.int_val);
+	    product = (double)a.v.int_val * (double)b.v.int_val;
+	    if (fabs(product) >= (double)INT_MAX)
+		(void) Gcomplex(&result, product, 0.0);
+	    else
+		(void) Ginteger(&result, a.v.int_val * b.v.int_val);
 	    break;
 	case CMPLX:
 	    (void) Gcomplex(&result, a.v.int_val *
@@ -806,7 +822,7 @@ void
 f_power(union argument *arg)
 {
     struct value a, b, result;
-    int i, t, count;
+    int i, t;
     double mag, ang;
 
     (void) arg;			/* avoid -Wunused warning */
@@ -817,19 +833,23 @@ f_power(union argument *arg)
     case INTGR:
 	switch (b.type) {
 	case INTGR:
-	    count = abs(b.v.int_val);
+	    if (a.v.int_val == 0) {
+		if (b.v.int_val < 0)
+		    undefined = TRUE;
+		(void) Ginteger(&result, b.v.int_val == 0 ? 1 : 0);
+		break;
+	    }
+	    /* EAM Oct 2009 - avoid integer overflow by switching to double */
+	    mag = pow((double)a.v.int_val,(double)b.v.int_val);
+	    if (mag > (double)INT_MAX  ||  b.v.int_val < 0) {
+		(void) Gcomplex(&result, mag, 0.0);
+		break;
+	    }
 	    t = 1;
 	    /* this ought to use bit-masks and squares, etc */
-	    for (i = 0; i < count; i++)
+	    for (i = 0; i < b.v.int_val; i++)
 		t *= a.v.int_val;
-	    if (b.v.int_val >= 0)
-		(void) Ginteger(&result, t);
-	    else if (t != 0)
-		(void) Gcomplex(&result, 1.0 / t, 0.0);
-	    else {
-		undefined = TRUE;
-		(void) Gcomplex(&result, 0.0, 0.0);
-	    }
+	    (void) Ginteger(&result, t);
 	    break;
 	case CMPLX:
 	    if (a.v.int_val == 0) {
@@ -1385,6 +1405,7 @@ f_strptime(union argument *arg)
 {
     struct value fmt, val;
     struct tm time_tm;
+    double usec = 0.0;
     double result;
 
     (void) arg; /* Avoid compiler warnings */
@@ -1399,16 +1420,65 @@ f_strptime(union argument *arg)
 	int_error(NO_CARET, "Internal error: string not allocated");
 
 
-    /* string -> time_tm */
-    gstrptime(val.v.string_val, fmt.v.string_val, &time_tm);
+    /* string -> time_tm  plus extra fractional second */
+    gstrptime(val.v.string_val, fmt.v.string_val, &time_tm, &usec);
 
     /* time_tm -> result */
     result = gtimegm(&time_tm);
     FPRINTF((stderr," strptime result = %g seconds \n", result));
 
+    /* Add back any extra fractional second */
+    result += usec;
+
     gpfree_string(&val);
     gpfree_string(&fmt);
     push(Gcomplex(&val, result, 0.0));
+}
+
+/* Get current system time in seconds since 2000 
+ * The type of the value popped from the stack 
+ * determines what is returned.
+ * If integer, the result is also an integer.
+ * If real (complex), the result is also real, 
+ * with microsecond precision (if available).
+ * If string, it is assumed to be a format string, 
+ * and it is passed to strftime to get a formatted time string.
+ */
+void
+f_time(union argument *arg)
+{
+    struct value val, val2;
+    double time_now;
+#ifdef HAVE_SYS_TIME_H
+    struct timeval tp;
+
+    gettimeofday(&tp, NULL);
+    tp.tv_sec -= SEC_OFFS_SYS;
+    time_now = tp.tv_sec + (tp.tv_usec/1000000.0);
+#else
+
+    time_now = (double) time(NULL);
+    time_now -= SEC_OFFS_SYS;
+#endif
+
+    (void) arg; /* Avoid compiler warnings */
+    pop(&val); 
+    
+    switch(val.type) {
+	case INTGR:
+	    push(Ginteger(&val, (int) time_now));
+	    break;
+	case CMPLX:
+	    push(Gcomplex(&val, time_now, 0.0));
+	    break;
+	case STRING:
+	    push(&val); /* format string */
+	    push(Gcomplex(&val2, time_now, 0.0));
+	    f_strftime(arg);
+	    break;
+	default:
+	    int_error(NO_CARET,"internal error: invalid argument type");
+    }
 }
 
 
@@ -1521,3 +1591,43 @@ f_assign(union argument *arg)
     }
 }
 
+/*
+ * Retrieve the current value of a user-defined variable whose name is known.
+ * B = value("A") has the same result as B = A.
+ */
+
+void
+f_value(union argument *arg)
+{
+    struct udvt_entry *p = first_udv;
+    struct value a;
+    struct value result;
+
+    (void) arg;
+    (void) pop(&a);
+
+    if (a.type != STRING) {
+	/* int_warn(NO_CARET,"non-string value passed to value()"); */
+	push(&a);
+	return;
+    }
+
+    while (p) {
+	if (!strcmp(p->udv_name, a.v.string_val)) {
+	    result = p->udv_value;
+	    if (p->udv_undef)
+		p = NULL;
+	    else if (result.type == STRING)
+		result.v.string_val = gp_strdup(result.v.string_val);
+	    break;
+	}
+	p = p->next_udv;
+    }
+    gpfree_string(&a);
+    if (!p) {
+	/* int_warn(NO_CARET,"undefined variable name passed to value()"); */
+	result.type = CMPLX;
+	result.v.cmplx_val.real = not_a_number();
+    }
+    push(&result);
+}

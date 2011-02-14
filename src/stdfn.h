@@ -1,5 +1,5 @@
 /*
- * $Id: stdfn.h,v 1.32 2006/05/13 09:22:17 mikulik Exp $
+ * $Id: stdfn.h,v 1.36 2011/01/03 14:30:31 juhaszp Exp $
  */
 
 /* GNUPLOT - stdfn.h */
@@ -261,7 +261,11 @@ extern char *sys_errlist[];
 # define time_t long
 #endif
 
-#if defined(PIPES) && (defined(VMS) || (defined(OSK) && defined(_ANSI_EXT))) || defined(PIPES) && defined(AMIGA_SC_6_1)
+#ifdef HAVE_SYS_TIME_H
+# include <sys/time.h> /* for gettimeofday() */
+#endif
+
+#if defined(PIPES) && defined(VMS)
 FILE *popen __PROTO((char *, char *));
 int pclose __PROTO((FILE *));
 #endif
@@ -530,5 +534,7 @@ unsigned int sleep __PROTO((unsigned int));
 #endif
 
 double gp_strtod __PROTO((const char *str, char **endptr));
+
+double not_a_number __PROTO((void));
 
 #endif /* STDFN_H */

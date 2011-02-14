@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: color.c,v 1.85 2008/12/27 04:03:45 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: color.c,v 1.94 2010/10/12 21:11:25 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - color.c */
@@ -57,7 +57,8 @@ int supply_extended_color_specs = 0;
 
 static void draw_inside_color_smooth_box_postscript __PROTO((FILE * out));
 static void draw_inside_color_smooth_box_bitmap __PROTO((FILE * out));
-void cbtick_callback __PROTO((AXIS_INDEX axis, double place, char *text, struct lp_style_type grid));
+void cbtick_callback __PROTO((AXIS_INDEX axis, double place, char *text, 
+			struct lp_style_type grid, struct ticmark *userlabels));
 
 
 
@@ -101,7 +102,6 @@ make_palette()
     double gray;
 
     if (!term->make_palette) {
-	fprintf(stderr, "Error: terminal \"%s\" does not support continuous colors.\n",term->name);
 	return 1;
     }
 
@@ -123,8 +123,12 @@ make_palette()
 
     /* set the number of colours to be used (allocated) */
     sm_palette.colors = i;
-    if (sm_palette.use_maxcolors > 0 && i > sm_palette.use_maxcolors)
-	sm_palette.colors = sm_palette.use_maxcolors;
+    if (sm_palette.use_maxcolors > 0) {
+	if (sm_palette.colorMode == SMPAL_COLOR_MODE_GRADIENT)
+	    sm_palette.colors = i;	/* EAM Sep 2010 - could this be a constant? */
+	else if (i > sm_palette.use_maxcolors)
+	    sm_palette.colors = sm_palette.use_maxcolors;
+    }
 
     if (prev_palette.colorFormulae < 0
 	|| sm_palette.colorFormulae != prev_palette.colorFormulae
@@ -136,7 +140,8 @@ make_palette()
 	|| sm_palette.colors != prev_palette.colors) {
 	/* print the message only if colors have changed */
 	if (interactive)
-	fprintf(stderr, "smooth palette in %s: available %i color positions; using %i of them\n", term->name, i, sm_palette.colors);
+	    fprintf(stderr, "smooth palette in %s: using %i of %i available color positions\n",
+	    		term->name, sm_palette.colors, i);
     }
 
     prev_palette = sm_palette;
@@ -206,16 +211,9 @@ void ifilled_quadrangle(gpiPoint* icorners)
     term->filled_polygon(4, icorners);
 
     if (pm3d.hidden3d_tag) {
-
 	int i;
 
-	/* Colour has changed, so we must apply line properties again.
-	 * FIXME: It would be cleaner to apply the general line properties
-	 * outside this loop, and limit ourselves to apply_pm3dcolor().
-	 */
-	static struct lp_style_type lp = DEFAULT_LP_STYLE_TYPE;
-	lp_use_properties(&lp, pm3d.hidden3d_tag);
-	term_apply_lp_properties(&lp);
+	apply_pm3dcolor(&pm3d_border_lp.pm3d_color, term);
 
 	term->move(icorners[0].x, icorners[0].y);
 	for (i = 3; i >= 0; i--) {
@@ -353,17 +351,18 @@ draw_inside_color_smooth_box_postscript(FILE * out)
 
 
 
-/* plot the colour smooth box for from terminal's integer coordinates
+/* plot a colour smooth box bounded by the terminal's integer coordinates
    [x_from,y_from] to [x_to,y_to].
-   This routine is for non-postscript files, as it does explicitly the loop
+   This routine is for non-postscript files, as it does an explicit loop
    over all thin rectangles
  */
 static void
 draw_inside_color_smooth_box_bitmap(FILE * out)
 {
     int steps = 128; /* I think that nobody can distinguish more colours drawn in the palette */
-    int i, xy, xy2, xy_from, xy_to;
-    double xy_step, gray;
+    int i, j, xy, xy2, xy_from, xy_to;
+    int jmin = 0;
+    double xy_step, gray, range;
     gpiPoint corners[4];
 
     (void) out;			/* to avoid "unused parameter" warning */
@@ -372,33 +371,58 @@ draw_inside_color_smooth_box_bitmap(FILE * out)
 	corners[1].x = corners[2].x = color_box.bounds.xright;
 	xy_from = color_box.bounds.ybot;
 	xy_to = color_box.bounds.ytop;
+	xy_step = (color_box.bounds.ytop - color_box.bounds.ybot) / (double)steps;
     } else {
 	corners[0].y = corners[1].y = color_box.bounds.ybot;
 	corners[2].y = corners[3].y = color_box.bounds.ytop;
 	xy_from = color_box.bounds.xleft;
 	xy_to = color_box.bounds.xright;
+	xy_step = (color_box.bounds.xright - color_box.bounds.xleft) / (double)steps;
     }
-    xy_step = (color_box.rotation == 'h' ? color_box.bounds.xright - color_box.bounds.xleft : color_box.bounds.ytop - color_box.bounds.ybot) / (double) steps;
+    range = (xy_to - xy_from);
 
-    for (i = 0; i < steps; i++) {
-	gray = (double) i / steps;	/* colours equidistantly from [0,1] */
+    for (i = 0, xy2 = xy_from; i < steps; i++) {
+
+	/* Start from one pixel beyond the previous box */
+	xy = xy2;
+	xy2 = xy_from + (int) (xy_step * (i + 1));
+
+	/* Set the colour for the next range increment */
+	/* FIXME - The "1 +" seems wrong, yet it improves the placement in gd */
+	gray = (double)(1 + xy - xy_from) / range;
 	if (sm_palette.positive == SMPAL_NEGATIVE)
 	    gray = 1 - gray;
-	/* Set the colour (also for terminals which support extended specs). */
 	set_color(gray);
-	xy = xy_from + (int) (xy_step * i);
-	xy2 = xy_from + (int) (xy_step * (i + 1));
+
+	/* If this is a defined palette, make sure that the range increment */
+	/* does not straddle a palette segment boundary. If it does, split  */
+	/* it into two parts.                                               */
+	if (sm_palette.colorMode == SMPAL_COLOR_MODE_GRADIENT)
+	    for (j=jmin; j<sm_palette.gradient_num; j++) {
+		int boundary = xy_from + (int)(sm_palette.gradient[j].pos * range);
+		if (xy >= boundary) {
+		    jmin = j;
+		} else {
+		    if (xy2 > boundary) {
+			xy2 = boundary;
+			i--;
+			break;
+		    }
+		}
+		if (xy2 < boundary)
+		    break;
+	    }
+
 	if (color_box.rotation == 'v') {
 	    corners[0].y = corners[1].y = xy;
-	    corners[2].y = corners[3].y = (i == steps - 1) ? xy_to : xy2;
+	    corners[2].y = corners[3].y = GPMIN(xy_to,xy2+1);
 	} else {
 	    corners[0].x = corners[3].x = xy;
-	    corners[1].x = corners[2].x = (i == steps - 1) ? xy_to : xy2;
+	    corners[1].x = corners[2].x = GPMIN(xy_to,xy2+1);
 	}
 #ifdef EXTENDED_COLOR_SPECS
-	if (supply_extended_color_specs) {
+	if (supply_extended_color_specs)
 	    corners[0].spec.gray = -1;	/* force solid color */
-	}
 #endif
 	/* print the rectangle with the given colour */
 	if (default_fillstyle.fillstyle == FS_EMPTY)
@@ -416,7 +440,8 @@ cbtick_callback(
     AXIS_INDEX axis,
     double place,
     char *text,
-    struct lp_style_type grid) /* linetype or -2 for no grid */
+    struct lp_style_type grid, /* linetype or -2 for no grid */
+    struct ticmark *userlabels)
 {
     int len = (text ? CB_AXIS.ticscale : CB_AXIS.miniticscale)
 	* (CB_AXIS.tic_in ? -1 : 1) * (term->h_tic);
@@ -566,6 +591,7 @@ draw_color_smooth_box(int plot_mode)
 	    struct position default_size = {graph,graph,graph, 0.05, 1.0, 0};
 	    double xtemp, ytemp;
 	    map_position(&default_origin, &color_box.bounds.xleft, &color_box.bounds.ybot, "cbox");
+	    color_box.bounds.xleft += color_box.xoffset;
 	    map_position_r(&default_size, &xtemp, &ytemp, "cbox");
 	    color_box.bounds.xright = xtemp + color_box.bounds.xleft;
 	    color_box.bounds.ytop = ytemp + color_box.bounds.ybot;

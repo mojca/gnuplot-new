@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: stdfn.c,v 1.17 2005/07/26 04:24:16 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: stdfn.c,v 1.22 2010/10/10 17:38:23 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - stdfn.c */
@@ -299,14 +299,10 @@ purec_sscanf(const char *string, const char *format,...)
  */
 
 
-#ifdef AMIGA_SC_6_1
-#include <proto/dos.h>
-#endif
-
 unsigned int
 sleep(unsigned int delay)
 {
-#if defined(MSDOS) || defined(_Windows) || defined(DOS386) || defined(AMIGA_AC_5)
+#if defined(MSDOS) || defined(_Windows)
 # if !(defined(__TURBOC__) || defined(__EMX__) || defined(DJGPP)) || defined(_Windows)	/* Turbo C already has sleep() */
     /* kludge to provide sleep() for msc 5.1 */
     unsigned long time_is_up;
@@ -316,10 +312,6 @@ sleep(unsigned int delay)
 	/* wait */ ;
 # endif /* !__TURBOC__ ... */
 #endif /* MSDOS ... */
-
-#ifdef AMIGA_SC_6_1
-    Delay(50 * delay);
-#endif
 
 #ifdef WIN32
     Sleep((DWORD) delay * 1000);
@@ -458,5 +450,19 @@ gp_strtod(const char *str, char **endptr)
     return d;
 #else
     return strtod(str,endptr);
+#endif
+}
+
+/* Implement portable generation of a NaN value. */
+/* NB: Supposedly DJGPP V2.04 can use atof("NaN"), but... */
+
+double
+not_a_number(void)
+{
+#if defined (__MSC__) || defined (DJGPP) || defined(__DJGPP__) || defined(__MINGW32__)
+	unsigned long lnan[2]={0xffffffff, 0x7fffffff};
+    return *( double* )lnan;
+#else
+	return atof("NaN");
 #endif
 }

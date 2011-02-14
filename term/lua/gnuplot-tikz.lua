@@ -37,7 +37,7 @@
 
 
 
-  $Date: 2009/06/05 05:35:12 $
+  $Date: 2011/02/10 21:21:31 $
   $Author: sfeam $
   $Rev: 96 $
 
@@ -75,7 +75,7 @@ pgf.DEFAULT_FONT_SIZE = 10
 pgf.LATEX_STYLE_FILE = "gnuplot-lua-tikz"  -- \usepackage{gnuplot-lua-tikz}
 
 pgf.REVISION = string.sub("$Rev: 96a $",7,-3)
-pgf.REVISION_DATE = string.gsub("$Date: 2009/06/05 05:35:12 $",
+pgf.REVISION_DATE = string.gsub("$Date: 2011/02/10 21:21:31 $",
                                 "$Date: ([0-9]+).([0-9]+).([0-9]+) .*","%1/%2/%3")
 
 pgf.styles = {}
@@ -1196,7 +1196,12 @@ gfx.check_linetype = function()
   if gfx.linetype_idx ~= gfx.linetype_idx_set then
     local lt
     if gfx.linetype_idx < 0 then
-      lt = pgf.styles.linetypes_axes[math.abs(gfx.linetype_idx)][1]
+      if gfx.linetype_idx < -2 then
+	-- FIXME: what linetype to use for LT_BACKGROUND or LT_NODRAW?
+        lt = pgf.styles.linetypes[1][1]
+      else
+        lt = pgf.styles.linetypes_axes[math.abs(gfx.linetype_idx)][1]
+      end
     else
       lt = pgf.styles.linetypes[(gfx.linetype_idx % #pgf.styles.linetypes)+1][1]
     end
@@ -1310,9 +1315,7 @@ else
   term.description = "Lua PGF/TikZ terminal for LaTeX2e"
   term.flags = term.TERM_BINARY + term.TERM_CAN_CLIP
                 + term.TERM_IS_POSTSCRIPT + term.TERM_CAN_MULTIPLOT
-  if term.IS_GNUPLOT_43 then  -- gnuplot 4.3
-    term.flags = term.flags + term.TERM_CAN_DASH
-  end
+  term.flags = term.flags + term.TERM_CAN_DASH
 end
 
 

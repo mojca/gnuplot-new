@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot.c,v 1.104 2008/12/12 21:06:13 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot.c,v 1.120 2010/10/01 23:10:46 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot.c */
@@ -77,7 +77,7 @@ static char *RCSid() { return RCSid("$Id: plot.c,v 1.104 2008/12/12 21:06:13 sfe
 # include <sys/utsname.h>
 #endif
 
-#if defined(MSDOS) || defined(DOS386) || defined(__EMX__)
+#if defined(MSDOS) || defined(__EMX__)
 # include <io.h>
 #endif
 
@@ -93,10 +93,6 @@ extern int vms_ktid;
 extern smg$create_key_table();
 #endif /* VMS */
 
-#ifdef AMIGA_SC_6_1
-# include <proto/dos.h>
-#endif
-
 #ifdef _Windows
 # include <windows.h>
 # ifndef SIGINT
@@ -110,11 +106,9 @@ extern smg$create_key_table();
  * Only required by two files directly,
  * so I don't put this into a header file. -lh
  */
-#ifdef HAVE_LIBREADLINE
-# ifdef GNUPLOT_HISTORY
+#if defined(HAVE_LIBREADLINE) && !defined(MISSING_RL_TILDE_EXPANSION)
 #  include <readline/tilde.h>
-# endif
-extern int rl_complete_with_tilde_expansion;
+   extern int rl_complete_with_tilde_expansion;
 #endif
 
 /* BSD editline
@@ -131,7 +125,7 @@ extern int rl_complete_with_tilde_expansion;
 /*
  * The next variable is a pointer to the value returned from 'tilde_expand()'.
  * This function expands '~' to the user's home directory, or $HOME, with
- * UN*X, AmigaOS, MSDOS.
+ * UN*X, MSDOS.
  * Depending on your OS you have to make sure that the "$HOME" environment
  * variable exitsts.  You are responsible for valid values.
  */
@@ -156,7 +150,7 @@ extern int X11_args __PROTO((int, char **)); /* FIXME: defined in term/x11.trm *
 #endif
 
 /* patch to get home dir, see command.c */
-#if (defined (__TURBOC__) && (defined (MSDOS) || defined(DOS386))) || defined(DJGPP)
+#if defined (__TURBOC__) && (defined (MSDOS)) || defined(DJGPP)
 # include <dir.h>               /* MAXPATH */
 char HelpFile[MAXPATH];
 #endif /*   - DJL */
@@ -187,10 +181,7 @@ inter(int anint)
 {
     (void) anint;		/* aovid -Wunused warning */
     (void) signal(SIGINT, (sigfunc) inter);
-
-#ifndef DOSX286
     (void) signal(SIGFPE, SIG_DFL);	/* turn off FPE trapping */
-#endif
 
 #ifdef OS2
     if (!strcmp(term->name,"pm")) {
@@ -310,23 +301,17 @@ main(int argc, char **argv)
 #endif
 
 /* malloc large blocks, otherwise problems with fragmented mem */
-#ifdef OSK
-    _mallocmin(102400);
-#endif
-
 #ifdef MALLOCDEBUG
     malloc_debug(7);
 #endif
 
 /* get helpfile from home directory */
-#ifndef DOSX286
 # ifndef _Windows
-#  if defined (__TURBOC__) && (defined (MSDOS) || defined(DOS386))
+#  if defined (__TURBOC__) && defined (MSDOS)
     strcpy(HelpFile, argv[0]);
     strcpy(strrchr(HelpFile, DIRSEP1), "\\gnuplot.gih");
 #  endif			/*   - DJL */
 # endif				/* !_Windows */
-#endif /* !DOSX286 */
 #ifdef __DJGPP__
     {
 	char *s;
@@ -345,6 +330,7 @@ main(int argc, char **argv)
 #if defined(HAVE_LIBEDITLINE)
     rl_getc_function = getc_wrapper;
 #endif
+
 #if defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
     using_history();
     /* T.Walter 1999-06-24: 'rl_readline_name' must be this fix name.
@@ -352,7 +338,7 @@ main(int argc, char **argv)
     rl_readline_name = "Gnuplot";
     rl_terminal_name = getenv("TERM");
 #endif
-#if defined(HAVE_LIBREADLINE)
+#if defined(HAVE_LIBREADLINE) && !defined(MISSING_RL_TILDE_EXPANSION)
     rl_complete_with_tilde_expansion = 1;
 #endif
 
@@ -375,7 +361,12 @@ main(int argc, char **argv)
 		    "  -p  --persist\n"
 		    "  -e  \"command1; command2; ...\"\n"
 		    "gnuplot %s patchlevel %s\n"
+#ifdef DIST_CONTACT
+		    "Report bugs to "DIST_CONTACT"\n"
+		    "            or %s\n",
+#else
 		    "Report bugs to %s\n",
+#endif
 		    gnuplot_version, gnuplot_patchlevel, bug_email);
 	    return 0;
 
@@ -391,10 +382,6 @@ main(int argc, char **argv)
 	argv += n;
 	argc -= n;
     }
-#endif
-
-#ifdef APOLLO
-    apollo_pfm_catch();
 #endif
 
     setbuf(stderr, (char *) NULL);
@@ -431,11 +418,9 @@ main(int argc, char **argv)
 
     /* Initialize pre-loaded user variables */
     (void) Gcomplex(&udv_pi.udv_value, M_PI, 0.0);
-#ifdef HAVE_ISNAN
     udv_NaN = add_udv_by_name("NaN");
-    (void) Gcomplex(&(udv_NaN->udv_value), atof("NaN"), 0.0);
+    (void) Gcomplex(&(udv_NaN->udv_value), not_a_number(), 0.0);
     udv_NaN->udv_undef = FALSE;
-#endif
 
     init_memory();
 
@@ -448,18 +433,11 @@ main(int argc, char **argv)
      * can be registered to be executed before the terminal is reset. */
     GP_ATEXIT(term_reset);
 
-#ifdef AMIGA_SC_6_1
-    if (IsInteractive(Input()) == DOSTRUE)
-	interactive = TRUE;
-    else
-	interactive = FALSE;
-#else
 # if ((defined(__MSC__) && defined(_Windows)) || defined(__WIN32__)) && ! defined(WGP_CONSOLE)
     interactive = TRUE;
 # else
     interactive = isatty(fileno(stdin));
 # endif
-#endif /* !AMIGA_SC_6_1 */
 
     if (argc > 1)
 	interactive = noinputfiles = FALSE;
@@ -573,7 +551,7 @@ main(int argc, char **argv)
 	/* come back here from int_error() */
 	if (interactive == FALSE)
 	    exit_status = EXIT_FAILURE;
-#ifdef HAVE_LIBREADLINE
+#ifdef HAVE_READLINE_RESET
 	else
 	{
 	    /* reset properly readline after a SIGINT+longjmp */
@@ -581,11 +559,7 @@ main(int argc, char **argv)
 	}
 #endif
 
-#ifdef AMIGA_SC_6_1
-	(void) rawcon(0);
-#endif
 	load_file_error();	/* if we were in load_file(), cleanup */
-	reset_eval_depth();     /* reset evaluate command recursion counter */
 	SET_CURSOR_ARROW;
 
 #ifdef VMS
@@ -617,7 +591,7 @@ main(int argc, char **argv)
 	/* load filenames given as arguments */
 	while (--argc > 0) {
 	    ++argv;
-	    c_token = NO_CARET;	/* in case of file not found */
+	    c_token = 0;
 #ifdef _Windows
 	    if (stricmp(*argv, "-noend") == 0 || stricmp(*argv, "/noend") == 0
 	       	|| stricmp(*argv, "-persist") == 0)
@@ -628,13 +602,8 @@ main(int argc, char **argv)
 		FPRINTF((stderr,"'persist' command line option recognized\n"));
 
 	    } else if (strcmp(*argv, "-") == 0) {
-		/* DBT 10-7-98  go interactive if "-" on command line */
-
 		interactive = TRUE;
-		/* will this work on all platforms? */
-
 		while (!com_line());
-
 		interactive = FALSE;
 
 	    } else if (strcmp(*argv, "-e") == 0) {
@@ -643,10 +612,12 @@ main(int argc, char **argv)
 		    fprintf(stderr, "syntax:  gnuplot -e \"commands\"\n");
 		    return 0;
 		}
-		do_string(*argv, FALSE);
+		do_string(*argv);
 
-	    } else
+	    } else {
+		c_token = NO_CARET;	/* in case of file not found */
 		load_file(loadpath_fopen(*argv, "r"), gp_strdup(*argv), FALSE);
+	    }
 	}
 #ifdef _Windows
 	if (noend) {
@@ -684,7 +655,15 @@ interrupt_setup()
     setmatherr(purec_matherr);
 #endif
 
+#if defined(WGP_CONSOLE)
+    /* FIXME. CTRC+C crashes console mode gnuplot for windows.
+       Failure of longjmp() is not easy to fix so that the signal
+       of SIGINT is just ignored at the moment.
+    */
+    (void) signal(SIGINT, SIG_IGN);
+#else
     (void) signal(SIGINT, (sigfunc) inter);
+#endif
 
 #ifdef SIGPIPE
     /* ignore pipe errors, this might happen with set output "|head" */
@@ -748,7 +727,7 @@ get_user_env()
 	const char *env_shell;
 
 	if ((env_shell = getenv("SHELL")) == NULL)
-#if defined(MSDOS) || defined(_Windows) || defined(DOS386) || defined(OS2)
+#if defined(MSDOS) || defined(_Windows) || defined(OS2)
 	    if ((env_shell = getenv("COMSPEC")) == NULL)
 #endif
 		env_shell = SHELL;
