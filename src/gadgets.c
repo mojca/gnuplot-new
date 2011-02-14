@@ -127,7 +127,8 @@ double zero = ZERO;
 double pointsize = 1.0;
 
 /* set border */
-int draw_border = 31;
+int draw_border = 31;	/* The current settings */
+int user_border = 31;	/* What the user last set explicitly */
 int border_layer = 1;
 # define DEFAULT_BORDER_LP { 0, -2, 0, 1.0, 1.0, 0 }
 struct lp_style_type border_lp = DEFAULT_BORDER_LP;
@@ -179,6 +180,9 @@ filledcurves_opts filledcurves_opts_func = EMPTY_FILLEDCURVES_OPTS;
 TBOOLEAN prefer_line_styles = FALSE;
 
 histogram_style histogram_opts = DEFAULT_HISTOGRAM_STYLE;
+
+/* WINDOWID to be filled by terminals running on X11 (x11, wxt, qt, ...) */
+int current_x11_windowid = 0;
 
 /*****************************************************************/
 /* Routines that deal with global objects defined in this module */

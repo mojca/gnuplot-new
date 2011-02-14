@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: set.c,v 1.296 2008/12/11 06:53:14 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: set.c,v 1.300 2009/07/05 00:06:54 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - set.c */
@@ -936,6 +936,11 @@ set_border()
 	    draw_border = int_expression();
 	}
     }
+
+    /* This is the only place the user can change the border	*/
+    /* so remember what he set.  If draw_border is later changed*/
+    /* internally, we can still recover the user's preference.	*/
+    user_border = draw_border;
 }
 
 
@@ -3224,14 +3229,10 @@ set_pm3d()
 		    int_error(c_token, "expecting step values i,j");
 		} else {
 		    pm3d.interp_i = int_expression();
-		    if(pm3d.interp_i < 1)
-			pm3d.interp_i = 1;
 		    if (!equals(c_token,","))
 			int_error(c_token, "',' expected");
 		    c_token++;
 		    pm3d.interp_j = int_expression();
-		    if (pm3d.interp_j < 1)
-			pm3d.interp_j = 1;
 		    c_token--;
                 }
 		continue;
@@ -3990,8 +3991,7 @@ set_terminal()
 
     /* `set term <normal terminal>' */
     term = 0; /* in case set_term() fails */
-    term = set_term(c_token);
-    c_token++;
+    term = set_term();
     /* get optional mode parameters
      * not all drivers reset the option string before
      * strcat-ing to it, so we reset it for them
@@ -4964,8 +4964,10 @@ static void
 load_tics(AXIS_INDEX axis)
 {
     if (equals(c_token, "(")) {	/* set : TIC_USER */
-	c_token++;
-	load_tic_user(axis);
+	if (equals(++c_token, ")"))
+	    c_token++;
+	else
+	    load_tic_user(axis);
     } else {			/* series : TIC_SERIES */
 	load_tic_series(axis);
     }

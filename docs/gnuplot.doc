@@ -1,4 +1,4 @@
-C RCS $Id: gnuplot.doc,v 1.551 2008/12/11 06:53:14 sfeam Exp $
+C RCS $Id: gnuplot.doc,v 1.573 2009/06/07 18:59:49 sfeam Exp $
 C
 C Copyright (C) 1986 - 1993, 1998, 1999, 2000, 2001, 2004   Thomas Williams, Colin Kelley et al.
 C
@@ -35,8 +35,8 @@ C
 ^   Mailing list for comments: gnuplot-info@lists.sourceforge.net <p>
 ^   Mailing list for bug reports: gnuplot-bugs@lists.sourceforge.net <p>
 ^</h2><p>
-^<h3> This manual was prepared by Dick Crawford</h3><p>
-^<h3> Last revised: February 2007</h3><p>
+^<h3> This manual was originally prepared by Dick Crawford</h3><p>
+^<h3> Last revised: March 2009</h3><p>
 ^<hr>
 1 gnuplot
 2 Copyright
@@ -203,9 +203,9 @@ C
  UTF-8 character encodings. See `set locale`, `set encoding`, `set decimalsign`.
 
 3 Transparency
- Gnuplot now supports transparent objects in several ways. Any object or plot
- element that uses a fill style can be assigned a value from fully opaque to
- fully transparent. Image or matrix data can be plotted with an alpha channel
+ Gnuplot now supports several forms of transparency. Any object or plot
+ element that uses a fill style can be assigned a transparency from fully opaque
+ to fully transparent. Image or matrix data can be plotted with an alpha channel
  using the new plot style `with rgbalpha`. See `fillstyle`, `rgbalpha`.
 
 3 Volatile Data
@@ -256,15 +256,33 @@ C
 3 New plot elements
 =circles
 =ellipse
+=polygon
  The `set object` command can now be used to define fixed circles, ellipses, and
  polygons as well as rectangles. There is a corresponding new plot style
- `plot with circles`.  See `circles` `ellipse`.
+ `plot with circles`.  See `circle` `ellipse` `polygon`.
 
 3 New or revised terminal drivers
  Two new drivers based on the cairo and pango libraries are included,
  `pngcairo` and `pdfcairo`.  These are alternatives to the older libgd-based
  png driver and the older PDFLib-based pdf driver.  The figures in the pdf
  version of this manual were prepared using the pdfcairo terminal driver.
+
+ The `canvas` terminal driver produces javascript output that draws onto the
+ HTML canvas element of a web page.  It can produce either a complete web page
+ containing a single plot, or a script that can be embedded as part of an
+ externally generated HTML document that perhaps contains multiple plots.
+ The embedded plots support browser-side mousing, including zoom/unzoom.
+
+ The `lua` terminal driver creates an data intended to be further processed
+ by a script in the lua programming language.  At this point only one such
+ lua script, gnuplot-tikz.lua, is available.  It produces a TeX document
+ suitable for use with the latex TikZ package.  Other lua scripts could be
+ written to process the gnuplot output for use with other TeX packages,
+ or with other non-TeX tools.
+
+ `Set term tikz` is shorthand for `set term lua tikz`.  As decribed above, it
+ uses the generic lua terminal and an external lua script to produce a latex
+ document.
 
 3 New smoothing algorithms
 =kdensity
@@ -343,12 +361,13 @@ C
 ?line-editing
 ?editing
 ?command-line-editing
- Command-line editing and command history are supported using either the
- external gnu readline library or a built-in equivalent.  This choice is a
- configuration option at the time gnuplot is built.
+ Command-line editing and command history are supported using either an
+ external gnu readline library, an external BSD libedit library,  or a
+ built-in equivalent.  This choice is a configuration option at the time
+ gnuplot is built.
 
  The editing commands of the built-in version are given below. The gnu
- readline library has its own documentation.
+ readline and BSD libedit libraries have their own documentation.
 
 @start table - first is interactive cleartext form
        `Line-editing`:
@@ -482,20 +501,14 @@ C
    set xtics
    plot 'datafile' using 3:4:xticlabels(1) with linespoints
 
+=columnheader
  There is also an option that will interpret the first entry in a column of
  input data (i.e. the column heading) as a text field, and use it as the key
  title for data plotted from that column. The example given below will use the
  first entry in column 2 to generate a title in the key box, while processing
  the remainder of columns 2 and 4 to draw the required line:
 
-   plot 'datafile' using 1:(f($2)/$4) title 2 with lines
-
- This option must come immediately after the 'using' clause, if any.  E.g.:
-
-   plot 'datafile'           title 2    linetype 5   # OK
-   plot 'datafile' using 1:2 title 2    linetype 5   # OK
-   plot 'datafile' using 1:2 linetype 5 title "FOO"  # OK
-   plot 'datafile' using 1:2 linetype 5 title 2      # fails
+   plot 'datafile' using 1:(f($2)/$4) with lines title columnhead(2)
 
  See `set style labels`, `using xticlabels`, `plot title`, `using`.
 2 Enhanced text mode
@@ -1591,13 +1604,13 @@ C ... and restart the table:
 ?user-defined variables
 ?user-defined
 ?variables
- New user-defined variables and functions of one through five variables may
+ New user-defined variables and functions of one through twelve variables may
  be declared and used anywhere, including on the `plot` command itself.
 
  User-defined function syntax:
-       <func-name>( <dummy1> {,<dummy2>} ... {,<dummy5>} ) = <expression>
+       <func-name>( <dummy1> {,<dummy2>} ... {,<dummy12>} ) = <expression>
 
- where <expression> is defined in terms of <dummy1> through <dummy5>.
+ where <expression> is defined in terms of <dummy1> through <dummy12>.
 
  User-defined variable syntax:
        <variable-name> = <constant-expression>
@@ -1642,7 +1655,95 @@ C ... and restart the table:
  Valid names are the same as in most programming languages: they must begin
  with a letter, but subsequent characters may be letters, digits, "$", or "_".
 
+ Each function definition is made available as a special string-valued
+ variable with the prefix 'GPFUN_'.
+ 
+ Example:
+       set label GPFUN_sinc at graph .05,.95
+
  See `show functions`, `functions`, `gnuplot-defined variables`, `macros`.
+2 Fonts
+?fonts
+ Gnuplot does not provide any fonts of its own. It relies on external font
+ handling, the details of which unfortunately vary from one terminal type to
+ another. Brief documentation of font mechanisms that apply to more than one
+ terminal type is given here. For information on font use by other individual
+ terminals, see the documentation for that terminal.
+3 cairo (pdfcairo, pngcairo, wxt terminals)
+?fonts cairo
+=fonts
+=pdf
+=png
+=wxt
+ Sorry, this section is under construction.
+3 gd (png, gif, jpeg terminals)
+?gd
+?fonts gd
+=fonts
+=png
+=jpeg
+=gif
+ Font handling for the png, gif, and jpeg terminals is done by the external
+ library libgd.  Five basic fonts are provided directly by libgd. These are
+ `tiny` (5x8 pixels), `small` (6x12 pixels), `medium`, (7x13 Bold), `large`
+ (8x16) or `giant` (9x15 pixels). These fonts cannot be scaled or rotated.
+ Use one of these keywords instead of the `font` keyword. E.g.
+      set term png tiny
+
+ On most systems libgd also provides access to Adobe Type 1 fonts (*.pfa) and
+ TrueType fonts (*.ttf). You must give the name of the font file, not the name
+ of the font inside it, in the form "<face> {,<pointsize>}".
+ <face> is either the full pathname to the font file, or the first part of a
+ filename in one of the directories listed in the GDFONTPATH environmental
+ variable. That is, 'set term png font "Face"' will look for a font file named
+ either <somedirectory>/Face.ttf or <somedirectory>/Face.pfa.
+ For example, if GDFONTPATH contains `/usr/local/fonts/ttf:/usr/local/fonts/pfa`
+ then the following pairs of commands are equivalent
+      set term png font "arial"
+      set term png font "/usr/local/fonts/ttf/arial.ttf"
+      set term png font "Helvetica"
+      set term png font "/usr/local/fonts/pfa/Helvetica.pfa"
+ To request a default font size at the same time:
+      set term png font "arial,11"
+
+ Both TrueType and Adobe Type 1 fonts are fully scalable and rotatable.
+ If no specific font is requested in the "set term" command, gnuplot checks
+ the environmental variable GNUPLOT_DEFAULT_GDFONT to see if there is a
+ preferred default font.
+3 postscript  (also encapsulated postscript *.eps)
+?fonts postscript
+=fonts
+=postscript
+=eps
+ PostScript font handling is done by the printer or viewing program.
+ Gnuplot can create valid PostScript or encapsulated PostScript (*.eps) even if
+ no fonts at all are installed on your computer.  Gnuplot simply refers to the
+ font by name in the output file, and assumes that the printer or viewing
+ program will know how to find or approximate a font by that name.
+ 
+ All PostScript printers or viewers should know about the standard set of Adobe
+ fonts `Times-Roman`, `Helvetica`, `Courier`, and `Symbol`.  It is likely that
+ many additional fonts are also available, but the specific set depends on your
+ system or printer configuration. Gnuplot does not know or care about this;
+ the output *.ps or *.eps files that it creates will simply refer to whatever
+ font names you request.
+
+ Thus
+      set term postscript eps font "Times-Roman,12"
+ will produce output that is suitable for all printers and viewers.
+
+ On the other hand
+      set term postscript eps font "Garamond-Premier-Pro-Italic"
+ will produce an output file that contains valid PostScript, but since it
+ refers to a specialized font, only some printers or viewers will be able to
+ display the specific font that was requested.  Most will substitute a
+ different font.
+
+ However, it is possible to embed a specific font in the output file so that
+ all printers will be able to use it. This requires that the a suitable font
+ description file is available on your system. Note that some font files require
+ specific licensing if they are to be embedded in this way.
+ See `postscript fontfile` for more detailed description and examples.
 2 Glossary
 ?glossary
  Throughout this document an attempt has been made to maintain consistency of
@@ -2869,14 +2970,25 @@ Ffigure_histcols
 ?image
 ?rgbimage
 ?rgbalpha
- The `image`, `rgbimage`, and `rgbalpha` plotting styles all project an input 2D
- image onto either a 2D or 3D plot.  It is assumed that the image data forms an
- equidistant sampling grid in the viewing plane along two, not necessarily
- orthogonal, directions.  In other words, each group of four adjacent points is
- assumed to form a uniformly sized parallelogram.  The paralleogram is painted
- using the color of the corresponding pixel in the input image.
- 
-Ffigure_rgb3D.pdf
+ The `image`, `rgbimage`, and `rgbalpha` plotting styles all project a
+ uniformly sampled grid of data values onto a plane  in either a 2D or 3D.
+ The input data may be an actual bitmapped image, perhaps converted from a
+ standard format such as PNG, or a simple array of numerical values.
+
+=heatmap
+Ffigure_heatmap
+ This figure illustrates generation of a heat map from an array of scalar values.
+ The current palette is used to map each value onto the color assigned to the
+ corresponding pixel.
+       plot '-' matrix with image
+       5 4 3 1 0
+       2 2 0 0 1
+       0 0 0 1 0
+       0 1 2 4 3
+       e
+       e
+
+Ffigure_rgb3D
  Each pixel (data point) of the input 2D image will become a rectangle or
  parallelipiped in the plot. The coordinates of each data point will determine
  the center of the parallelipiped.  That is, an M x N set of data will form an
@@ -2918,8 +3030,7 @@ Ffigure_rgb3D.pdf
 ?image failsafe
 ?failsafe
  Some terminal drivers provide code to optimize rendering of image data
- within a rectangular 2D area.  However this code is known to be imperfect
- (hence the label EXPERIMENTAL for image support in gnuplot version 4.2).
+ within a rectangular 2D area.  However this code is known to be imperfect.
  This optimized code may be disabled by using the keyword `failsafe`. E.g.
 
        plot 'data' with image failsafe
@@ -3009,14 +3120,20 @@ Ffigure_lines
 ?style lp
 ?linespoints
 ?lp
+=pointinterval
 Ffigure_linespoints
- The `linespoints` style does both `lines` and `points`, that is, it draws a
- small symbol at each point and then connects adjacent points with straight
- line segments.  The command `set pointsize` may be used to change the size of
- the points.  See `set pointsize` for its usage.
+ The `linespoints` style connects adjacent points with straight line segments
+ and then goes back to draw a small symbol at each point.  The command
+ `set pointsize` may be used to change the default size of the points.
  1 or 2 columns of basic input data are required in 2D plots; 1 or 3 columns are
  required if 3D plots.  See `style lines`.  Additional input columns may be used
  to provide information such as variable point size or line color.
+
+ The `pointinterval` (short form `pi`) property of the line style can be used to
+ control whether or not every point in the plot is given a symbol.  For example,
+ 'with lp pi 3' will draw line segments through every data point, but will only
+ place a symbol on every 3rd point.  A negative value for `pointinterval` will
+ erase the portion of line segment that passes underneath the symbol.
 
  `linespoints` may be abbreviated `lp`.
 2 points
@@ -3383,15 +3500,15 @@ Ffigure_mapcontours
 ?fit
 ?least-squares
 ?Marquardt
- The `fit` command can fit a user-defined function to a set of data points
- (x,y) or (x,y,z), using an implementation of the nonlinear least-squares
+ The `fit` command can fit a user-supplied expression to a set of data points
+ (x,z) or (x,y,z), using an implementation of the nonlinear least-squares
  (NLLS) Marquardt-Levenberg algorithm.  Any user-defined variable occurring in
- the function body may serve as a fit parameter, but the return type of the
- function must be real.
+ the expression may serve as a fit parameter, but the return type of the
+ expression must be real.
 
  Syntax:
-       fit {[xrange] {[yrange]}} <function> '<datafile>'
-           {datafile-modifiers}
+       fit {<ranges>} <expression>
+           '<datafile>' {datafile-modifiers}
            via '<parameter file>' | <var1>{,<var2>,...}
 
  Ranges may be specified to temporarily limit the data which is to be fitted;
@@ -3399,21 +3516,29 @@ Ffigure_mapcontours
        [{dummy_variable=}{<min>}{:<max>}],
  analogous to `plot`; see `plot ranges`.
 
- <function> is any valid `gnuplot` expression, although it is usual to use a
+ <expression> is any valid `gnuplot` expression, although it is usual to use a
  previously user-defined function of the form f(x) or f(x,y).
 
  <datafile> is treated as in the `plot` command.  All the `plot datafile`
  modifiers (`using`, `every`,...) except `smooth` and the deprecated `thru`
  are applicable to `fit`. See `plot datafile`.
 
- The default data formats for fitting functions with a single independent
- variable, y=f(x), are {x:}y or x:y:s; those formats can be changed with
- the datafile `using` qualifier.  The third item (a column number or an
- expression), if present, is interpreted as the standard deviation of the
- corresponding y value and is used to compute a weight for the datum, 1/s**2.
- Otherwise, all data points are weighted equally, with a weight of one.
- Note that if you don't specify a `using` option at all, no y deviations are
- read from the datafile even if it does have a third column, so you'll
+ The default data formats for fitting functions with a single
+ independent variable, z=f(x), are z or x:z.  That is, if there is
+ only a single column then it is the dependent variable and the line
+ numbers is the independent variable.  If there are two columns, the
+ first is the independent variable and the second is the dependent
+ variable.
+
+ Those formats can be changed with the datafile `using` qualifier, for
+ example to take the z value from a different column or to calculate
+ it from several columns.  A third `using` qualifier (a column number
+ or an expression), if present, is interpreted as the standard
+ deviation of the corresponding z value and is used to compute a
+ weight for the datum, 1/s**2.  Otherwise, all data points are
+ weighted equally, with a weight of one. Note that if you don't
+ specify a `using` option at all, no z standard deviations are read
+ from the datafile even if it does have a third column, so you'll
  always get unit weights.
 
  To fit a function with two independent variables, z=f(x,y), the required
@@ -3422,6 +3547,24 @@ Ffigure_mapcontours
  each data point are evaluated from 's' as above.  If error estimates are
  not available, a constant value can be specified as a constant expression
  (see `plot datafile using`), e.g., `using 1:2:3:(1)`.
+
+ The fit function may have up to five independent variables.  There
+ must be two more `using` qualifiers than there are independent
+ variables, unless there is only one variable.  The allowed formats,
+ and the default dummy variable names, are as follows:
+
+       z
+       x:z
+       x:z:s
+       x:y:z:s
+       x:y:t:z:s
+       x:y:t:u:z:s
+       x:y:t:u:v:z:s
+
+ The dummy variable names may be changed with ranges as noted above.
+ The first range corresponds to the first `using` spec, etc.  A range
+ may also be given for z (the dependent variable), but that name
+ cannot be changed.
 
  Multiple datasets may be simultaneously fit with functions of one
  independent variable by making y a 'pseudo-variable', e.g., the dataline
@@ -3438,6 +3581,12 @@ Ffigure_mapcontours
        fit f(x) 'measured.dat' using 3:($7-5) via 'start.par'
        fit f(x) './data/trash.dat' using 1:2:3 via a, b, c
        fit g(x,y) 'surface.dat' using 1:2:3:(1) via a, b, c
+       fit a0 + a1*x/(1 + a2*x/(1 + a3*x)) 'measured.dat' via a0,a1,a2,a3
+       fit a*x + b*y 'surface.dat' using 1:2:3:(1) via a,b
+       fit [*:*][yaks=*:*] a*x+b*yaks 'surface.dat' u 1:2:3:(1) via a,b
+       fit a*x + b*y + c*t 'foo.dat' using 1:2:3:4:(1) via a,b,c
+       h(x,y,t,u,v) = a*x + b*y + c*t + d*u + e*v
+       fit h(x,y,t,u,v) 'foo.dat' using 1:2:3:4:5:6:(1) via a,b,c,d,e
 
  After each iteration step, detailed information about the current state
  of the fit is written to the display.  The same information about the
@@ -4661,7 +4810,7 @@ Ffigure_mapcontours
  For each point in the file, the index value of the data set it appears in is
  available via the pseudo-column `column(-2)`.  This leads to an alternative way
  of distinguishing individual data sets within a file as shown below.  This is
- more awkward that the `index` command if all you are doing is selecting one
+ more awkward than the `index` command if all you are doing is selecting one
  data set for plotting, but is very useful if you want to assign different
  properties to each data set.  See `pseudocolumns`, `lc variable`.
 
@@ -5100,7 +5249,7 @@ Ffigure_mapcontours
 ^ <a href="http://www.gnuplot.info/demo/using.html">
  Feeble using demos.
 ^ </a>
-5 pseuodocolumns
+5 pseudocolumns
 ?pseudocolumns
 ?commands plot datafile using pseudocolumns
 ?plot datafile using pseudocolumns
@@ -5116,20 +5265,6 @@ Ffigure_mapcontours
                    This corresponds to the data line in array or grid data.
        column(-2)  The index number of the current data set within a file that
                    contains multiple data sets.  See `index`.
-
-5 using title
-?using title
-?plot using title
- The first entry of a column of the input data file can be used as a string
- to provide the plot title in the key box.  The column containing specified
- is independent of the column[s] used for the plot itself.
-
-    plot 'data' using 1:($2/$3) title column(N)
-
- In this case the entry in the first row of column N will be used for the
- key entry of the plot constructed from dividing column 2 by column 3.
- The entry in the first row of columns 2 and 3 will be ignored.
-
 5 xticlabels
 ?xticlabels
 ?using xticlabels
@@ -5378,15 +5513,28 @@ Ffigure_mapcontours
        plot for [<variable> = <start> : <end> {:<increment>}]
        plot for [<variable> in "string of words"]
 
- Examples:
+ The scope of an iteration ends at the next comma or the end of the
+ command, whichever comes first.  Iteration may be nested.
+
+ Example:
+       plot for [dataset in "apples bananas"] dataset."dat" title dataset
+
+ In this example iteration is used both to generate a file name and a
+ corresponding title.
+
+ Example:
        file(n) = sprintf("dataset_%d.dat",n)
        splot for [i=1:10] file(i) title sprintf("dataset %d",i)
-       plot for [dataset in "apples bananas"] dataset."dat" title dataset
 
  This example defines a string-valued function that generates file names,
  and plots ten such files together. The iteration variable ('i' in this
- example) is treated as an integer, and may be used more than once. In this
- example it is used both to generate a file name and a corresponding title.
+ example) is treated as an integer, and may be used more than once.
+
+ Example:
+       set key left
+       plot [0:1] for [n=1:4] x**n sprintf("%d",n)
+
+ This example plots a family of functions.
 
  Example:
        list = "apple banana cabbage daikon eggplant"
@@ -5413,14 +5561,16 @@ Ffigure_mapcontours
 ?commands splot title
 ?plot title
 ?splot title
+?columnheader
  A line title for each function and data set appears in the key, accompanied
  by a sample of the line and/or symbol used to represent it.  It can be
  changed by using the `title` option.
 
  Syntax:
-       title "<title>" | notitle ["<ignored title>"]
+       title <text> | notitle [<ignored text>]
+       title columnheader | title columnheader(N)
 
- where <title> is the new title of the line and must be enclosed in quotes.
+ where <text> must either be a quoted string or a string variable.
  The quotes will not be shown in the key.  A special character may be given as
  a backslash followed by its octal value ("\345").  The tab character "\t" is
  understood.  Note that backslash processing occurs only for strings enclosed
@@ -5428,8 +5578,9 @@ Ffigure_mapcontours
  character "\n" is not processed in key entries in either type of string.
 
  There is also an option that will interpret the first entry in a column of
- input data (i.e. the column heading) as a text field, and use it as the key
- title. See `datastrings`.
+ input data (i.e. the column header) as a text field, and use it as the key
+ title.  See `datastrings`.  This can be made the default by speicifying
+ `set key autotitle columnhead`.
 
  The line title and sample can be omitted from the key by using the keyword
  `notitle`.  A null title (`title ''`) is equivalent to `notitle`.  If only
@@ -5455,6 +5606,10 @@ Ffigure_mapcontours
 
  This puts an untitled circular border around a polar graph:
        set polar; plot my_function(t), 1 notitle
+
+ Plot multiple columns of data, each of which contains its own title in the file
+       plot for [i=1:4] 'data' using i title columnhead
+
 3 with
 ?commands plot with
 ?commands splot with
@@ -5477,7 +5632,7 @@ Ffigure_mapcontours
                          {pointtype | pt <point_type>}
                          {pointsize | ps <point_size>}
                          {fill | fs <fillstyle>}
-                         {nohidden3d | nocontours}
+                         {nohidden3d} {nocontours} {nosurface}
                          {palette}}
                     }
 
@@ -5548,7 +5703,10 @@ Ffigure_mapcontours
  be drawn, even if they would normally be obscured by other plot elements.
 
  Similarly, the keyword `nocontours` will turn off contouring for an individual
- plot even if the global property "set contour" is active.
+ plot even if the global property `set contour` is active.
+
+ Similarly, the keyword `nosurface` will turn off the 3D surface for an
+ individual plot even if the global property `set surface` is active.
 
  The keywords may be abbreviated as indicated.
 
@@ -5620,6 +5778,10 @@ Ffigure_mapcontours
 ?commands pwd
 ?pwd
  The `pwd` command prints the name of the working directory to the screen.
+
+ Note that if you wish to store the current directory into a string variable
+ or use it in string expressions, then you can use variable GPVAL_PWD, see
+ `show variables all`. This overcomes shell call by means of "`pwd`". 
 2 quit
 ?commands quit
 ?quit
@@ -7300,7 +7462,7 @@ Ffigure_mapcontours
 #\verb@%A@ & full name of day of the week \\
 #\verb@%b@ or \verb@%h@ & abbreviated name of the month \\
 #\verb@%B@ & full name of the month \\
-#\verb@%d@ & day of the month, 1--31 \\
+#\verb@%d@ & day of the month, 01--31 \\
 #\verb@%D@ & shorthand for \verb@"%m/%d/%y"@ (only output) \\
 #\verb@%F@ & shorthand for \verb@"%Y-%m-%d"@ (only output) \\
 #\verb@%k@ & hour, 0--23 (one or two digits)\\
@@ -7308,7 +7470,7 @@ Ffigure_mapcontours
 #\verb@%l@ & hour, 1--12  (one or two digits)\\
 #\verb@%I@ & hour, 01--12 (always two digits)\\
 #\verb@%j@ & day of the year, 1--366 \\
-#\verb@%m@ & month, 1--12 \\
+#\verb@%m@ & month, 01--12 \\
 #\verb@%M@ & minute, 0--60 \\
 #\verb@%p@ & "am" or "pm" \\
 #\verb@%r@ & shorthand for \verb@"%I:%M:%S %p"@ (only output)\\
@@ -7327,7 +7489,7 @@ Ffigure_mapcontours
 %%A@full name of day of the week
 %%b or %h@abbreviated name of the month
 %%B@full name of the month
-%%d@day of the month, 1--31
+%%d@day of the month, 01--31
 %%D@shorthand for "%m/%d/%y" (only output)
 %%F@shorthand for "%Y-%m-%d" (only output)
 %%k@hour, 0--23 (one or two digits)
@@ -7335,7 +7497,7 @@ Ffigure_mapcontours
 %%l@hour, 1--12 (one or two digits)
 %%I@hour, 01--12 (always two digits)
 %%j@day of the year, 1--366
-%%m@month, 1--12
+%%m@month, 01--12
 %%M@minute, 0--60
 %%p@"am" or "pm"
 %%r@shorthand for "%I:%M:%S %p" (only output)
@@ -7700,12 +7862,15 @@ Ffigure_mapcontours
  suppressed by `noautotitles`; then only those titles explicitly defined
  by `(s)plot ... title ...` will be drawn.
 
- The `set key autotitle columnheader` command causes the first entry in each
+=columnheader
+ The command `set key autotitle columnheader` causes the first entry in each
  column of input data to be interpreted as a text string and used as a title for
  the corresponding plot. If the quantity being plotted is a function of data
  from several columns, gnuplot may be confused as to which column to draw the
  title from. In this case it is necessary to specify the column explicitly in
- the plot command, e.g. `plot "datafile" using (($2+$3)/$4) title 3 with lines`.
+ the plot command, e.g.
+
+       plot "datafile" using (($2+$3)/$4) title columnhead(3) with lines
 
  An overall title can be put on the key (`title "<text>"`)---see also `syntax`
  for the distinction between text in single- or double-quotes.  The key title
@@ -7982,6 +8147,13 @@ Ffigure_mapcontours
        set label sprintf("a = %3.5g",par_a) at 30,15
        bfit = gprintf("b = %s*10^%S",par_b)
        set label bfit at 30,20
+
+ To display a function definition along with its fitted parameters, use:
+       f(x)=a+b*x
+       fit f(x) 'datafile' via a,b
+       set label GPFUN_f at graph .05,.95
+       set label sprintf("a = %g", a) at graph .05,.90 
+       set label sprintf("b = %g", b) at graph .05,.85
 
  To set a label displaced a little bit from a small point:
        set label 'origin' at 0,0 point lt 1 pt 2 ps 3 offset 1,-1
@@ -8612,7 +8784,7 @@ Ffigure_mapcontours
  or
          from <position> rto <position> ... {rto <position>}
 
- The position of the rectangle may be specified by giving the position of a
+ The position of the polygon may be specified by giving the position of a
  sequence of vertices. These may be given in axis, graph, or screen coordinates.
  If relative coordinates are used (rto) then the coordinate type must match
  that of the previous vertex.
@@ -8847,7 +9019,7 @@ Ffigure_mapcontours
  Syntax (the options can be given in any order):
        set pm3d {
                   { at <bst combination> }
-                  { interpolate <steps in scan>,<steps between scans> }
+                  { interpolate <steps/points in scan, between scans> }
                   { scansautomatic | scansforward | scansbackward | depthorder }
                   { flush { begin | center | end } }
                   { ftriangles | noftriangles }
@@ -8949,12 +9121,17 @@ Ffigure_mapcontours
  filtering and color range scaling, respectively; and also `set (no)surface`
  seems to have a (side?) effect.
 
- The option `interpolate` will interpolate grid points into a finer mesh, and
- color each quadrangle appropriately. For data files, this will smoothen the
- color surface, and enhance spikes in a color surface. For functions,
+ The option `interpolate m,n` will interpolate grid points into a finer mesh,
+ and color each quadrangle appropriately.  For data files, this will smoothen
+ the color surface, and enhance spikes in a color surface. For functions,
  interpolation makes little sense, except to trade off precision for memory.
- It would usually make more sense to use `samples` and `isosamples` when working
- with functions.
+ It would usually make more sense to use `samples` and `isosamples` when
+ working with functions. For positive m and n, each quadrangle or triangle
+ is interpolated m-times and n-times in the respective direction.  For negative
+ m and n, the interpolation frequency is chosen so that there will be at least
+ |m| and |n| points drawn; you can consider this as a special gridding function.
+ Zeros, i.e. `interpolation 0,0`, will automatically choose an optimal number of
+ interpolated surface points.
 
  The coloring setup as well as the color box drawing are determined by
  `set palette`.  There can be only one palette for the current plot.  Drawing
@@ -9821,6 +9998,9 @@ Ffigure_mapcontours
 ?linestyle
 ?linewidth
 =linewidth
+=interval
+=linespoints
+=pointinterval
  Each terminal has a default set of line and point types, which can be seen
  by using the command `test`.  `set style line` defines a set of line types
  and widths and point types and sizes so that you can refer to them later by
@@ -9833,6 +10013,7 @@ Ffigure_mapcontours
                               {{linewidth | lw} <line_width>}
                               {{pointtype | pt} <point_type>}
                               {{pointsize | ps} <point_size>}
+                              {{pointinterval | pi} <interval>}
                               {palette}
        unset style line
        show style line
@@ -9844,13 +10025,20 @@ Ffigure_mapcontours
  changed while all others are preserved.  If not, all undefined values are
  set to the default values.
 
- The line and point types are taken from the default types for the terminal
- currently in use.  The line width and point size are multipliers for the
+ The line and point types default to the index value. The exact symbol that is
+ drawn for that index value may vary from one terminal type to another.
+ 
+ The line width and point size are multipliers for the current terminal's
  default width and size (but note that <point_size> here is unaffected by
- the multiplier given on `set pointsize`).
+ the multiplier given by the command`set pointsize`).
 
- The defaults for the line and point types is the index.  The defaults for
- the width and size are both unity.
+ The `pointinterval` controls the spacing between points in a plot drawn with
+ style `linespoints`.  The default is 0 (every point is drawn). For example,
+ `set style line N pi 3` defines a linestyle that uses pointtype N, pointsize
+ and linewidth equal to the current defaults for the terminal, and will draw
+ every 3rd point in plots using `with linespoints`.  A negative value for the
+ interval is treated the same as a positive value, except that some terminals
+ will try to interrupt the line where it passes through the point symbol.
 
  Linestyles created by this mechanism do not replace the default linetype
  styles; both may be used.  If you want plots to use the defined styles in
@@ -9951,11 +10139,13 @@ Ffigure_mapcontours
  The surface is drawn with the style specified by `with`, or else the
  appropriate style, data or function.
 
- Whenever `unset surface` is issued, `splot` will not draw points or lines
- corresponding to the function or data file points.  Contours may still be
- drawn on the surface, depending on the `set contour` option. `unset surface;
- set contour base` is useful for displaying contours on the grid base.  See
- also `set contour`.
+ `unset surface` will cause `splot` to not draw points or lines corresponding
+ to any of the function or data file points.  If you want to turn off the surface
+ for an individual function or data file while leaving the others active, use
+ the `nosurface` keyword in the `splot` command.  Contours may still be drawn on
+ the surface, depending on the `set contour` option.  The combination
+ `unset surface; set contour base` is useful for displaying contours on the grid
+ base.  See also `set contour`. 
 3 table
 ?commands set table
 ?set table
@@ -10027,7 +10217,7 @@ Ffigure_mapcontours
  that `set term pop` restores the default terminal on a given platform unless
  another terminal has been pushed explicitly.
 
- For a complete list of available terminal types, see `terminal`.
+ For more information, see the `complete list of terminals`.
 3 termoption
 ?commands set termoption
 ?set termoption
@@ -10314,6 +10504,7 @@ Ffigure_mapcontours
  Please see `set xrange` for details.
 3 variables
 ?commands show variables
+?show variables all
 ?show variables
  The `show variables` command lists the current value of user-defined and
  internal variables. Gnuplot internally defines variables whose names begin
@@ -10381,7 +10572,9 @@ Ffigure_mapcontours
  to 0.5.
 4 equal_axes
 ?set view equal_axes
+?set view equal
 ?view equal_axes
+?view equal
  The command `set view equal xy` forces the unit length of the x and y axes
  to be on the same scale, and chooses that scale so that the plot will fit on
  the page.  The command `set view equal xyz` additionally sets the z axis 
@@ -11691,7 +11884,8 @@ Ffigure_mapcontours
  Please see `fit` for more information.
 1 Terminal types
 ^ <h2> Terminal Types </h2>
-2 terminal
+2 complete list of terminals
+?complete list of terminals
 ?terminal
 ?term
  Gnuplot supports a large number of output formats. These are selected by
@@ -11750,7 +11944,7 @@ Ffigure_mapcontours
  the corresponding point as undefined) or aborts `gnuplot` depends on the
  compiler/runtime environment.
 
- The gamma and bessel functions do not work for complex arguments.
+ The gamma, bessel, and erf functions do not work for complex arguments.
 
  Only one color palette at a time is active for any given x11 plot window.
  This means that multiplots whose constituent plots use different palettes

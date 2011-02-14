@@ -1,7 +1,7 @@
 dnl Process this file with autoconf to produce a configure script.
 dnl configure.in for gnuplot on Unix.
 dnl
-dnl $Id: configure.in,v 1.237 2008/12/12 21:06:13 sfeam Exp $
+dnl $Id: configure.in,v 1.249 2009/06/17 06:38:54 sfeam Exp $
 dnl
 dnl this is actually major.minor ...
 dnl note that for a non-beta release, we need to
@@ -274,7 +274,7 @@ dnl Use builtin readline or GNU readline or NetBSD editline
 AC_ARG_WITH(readline,dnl
 [  --with-readline=builtin  use the built-in minimal readline
   --with-readline=gnu      use the GNU readline library (default; 4.2 or newer required)
-  --with-readline=bsd      use the NetBSD editline library
+  --with-readline=bsd      use the NetBSD editline library (NB: does not handle UTF-8!)
   --with-readline=DIR      specify the location of GNU readline
   --without-readline       do not use any readline function], ,
   test -z "$with_readline" && with_readline=gnu)
@@ -454,7 +454,7 @@ if test "$with_gd" != no; then
   CPPFLAGS="$CPPFLAGS $libgd_CPPFLAGS"
   LDFLAGS="$LDFLAGS $libgd_LDFLAGS"
 
-  AC_CHECK_LIB(gd,gdImageCreate,
+  AC_CHECK_LIB(gd,gdImageCreateTrueColor,
     [dnl found gd library
      AC_DEFINE(HAVE_LIBGD,1,[ Define if you have gd library. ])
      AC_CHECK_HEADERS(gd.h,,
@@ -496,6 +496,7 @@ if test "$with_gd" != no; then
      LIBS="$_libs"
 
     ],[dnl gd library not found
+       AC_MSG_WARN([libgd not found or too old, version >= 2.0 is required])
        with_gd=no
     ])
 
@@ -571,6 +572,39 @@ if test "$with_pdf" != no; then
 
 fi
 dnl end pdf
+
+dnl check presence of lua/TikZ support
+AC_ARG_WITH(lua,dnl
+[  --with-lua            enable lua/TikZ terminal driver],,
+  with_lua=yes)
+
+if test "${with_lua}" = yes ; then
+  PKG_CHECK_MODULES(LUA, [lua], LUAFOUND=yes, [LUAFOUND=no])
+  if test $pkg_failed != no; then
+    AC_MSG_WARN([The lua terminal will not be compiled.])
+    with_lua=no
+  else
+    _libs="$LIBS"
+    LIBS="$LIBS $LUA_LIBS"
+  fi
+
+  AC_SEARCH_LIBS(luaL_openlibs, lua,
+    [dnl found lua library
+     AC_DEFINE(HAVE_LUA,1, [ Define if you want the lua/TikZ terminal. ])
+     AC_CHECK_HEADERS(lua.h,,
+       AC_MSG_WARN([please add path to lua.h to CPPFLAGS in Makefile]))
+    ],
+    with_lua=no)
+ 
+  LIBS="$_libs"
+  if test "$with_lua" != no; then
+    TERMLIBS="$TERMLIBS $LUA_LIBS"
+    CPPFLAGS="$CPPFLAGS $LUA_CFLAGS"
+  fi
+
+fi
+AM_CONDITIONAL(BUILD_LUA, test "${with_lua}" = yes)
+dnl end lua
 
 dnl How do we detect the Ultrix X libraries?
 dnl Or is it really a server (run-time) problem?
@@ -648,15 +682,6 @@ if test "$enable_mouse" = yes; then
 fi
 
 
-dnl with_image
-AC_ARG_ENABLE(with_image,dnl
-[  --disable-with-image          disable image support],,
-  test -z "$enable_with_image" && enable_with_image=yes)
-
-if test "$enable_with_image" = yes; then
-  AC_DEFINE(WITH_IMAGE,1,[ Define if you want to have image plotting support. ])
-fi
-
 dnl enable multi-byte font support in x11 terminal
 AC_ARG_ENABLE(x11-mbfonts,dnl
 [  --disable-x11-mbfonts   disable multi-byte font support for x11 ],,
@@ -674,15 +699,6 @@ AC_ARG_ENABLE(x11-mbfonts,dnl
     LDFLAGS="$_ldflags"
   
   fi
-
-dnl binary_x11_polygon
-AC_ARG_ENABLE(binary_x11_polygon,dnl
-[  --disable-binary-x11-polygon  disable binary_x11_polygon],,
-  test -z "$enable_binary_x11_polygon" && enable_binary_x11_polygon=yes)
-
-if test "$enable_binary_x11_polygon" = yes; then
-  AC_DEFINE(BINARY_X11_POLYGON,1,[ Define if you want the x11 driver to transfer polygon information in binary format. ])
-fi
 
 dnl x11_external
 AC_ARG_ENABLE(x11_external,dnl
@@ -787,7 +803,7 @@ AC_ARG_ENABLE(macros,dnl
   test -z "$enable_macros" && enable_macros=yes)
   if test "$enable_macros" = yes; then
       AC_DEFINE(GP_MACROS,1,
-               [ Define to allow command line macros. EXPERIMENTAL ])
+               [ Define to allow command line macros. ])
   fi
 
 dnl MGR Window system
@@ -1053,11 +1069,11 @@ AC_MSG_RESULT([gnuplot will be compiled with the following terminals:])
 AC_MSG_RESULT([])
 
 AC_MSG_RESULT([  Standalone terminals: yes (always builtin)])
-AC_MSG_RESULT([    (aed512, aed767, aifm, bitgraph, cgm, corel, dumb, dxf, eepic, emf, emtex,])
+AC_MSG_RESULT([    (canvas, cgm, corel, dumb, dxf, eepic, emf, emtex,])
 AC_MSG_RESULT([    epslatex, epson_180dpi, epson_60dpi, epson_lx800, fig, gpic, hp2623A,])
-AC_MSG_RESULT([    hp2648, hp500c, hpdj, hpgl, hpljii, hppj, imagen, kc_tek40xx, km_tek40xx,])
+AC_MSG_RESULT([    hp2648, hp500c, hpdj, hpgl, hpljii, hppj, imagen,])
 AC_MSG_RESULT([    latex, metafont, metapost, mif, pbm, postscript, pslatex, nec_cp6, okidata,])
-AC_MSG_RESULT([    pcl5, pstex, pstricks, qms, regis, selanar, svg, starc, tandy_60dpi,])
+AC_MSG_RESULT([    pcl5, pstex, pstricks, qms, regis, svg, tandy_60dpi,])
 AC_MSG_RESULT([    tek40xx, tek410x, texdraw, tgif, tkcanvas, tpic, vttek)])
 
 if test "$no_x" != yes; then
@@ -1069,15 +1085,15 @@ if test "$no_x" != yes; then
   fi
 
   if test "$enable_x11_external" = yes; then
-    AC_MSG_RESULT([    (enable plotting to windows opened by external apps (EXPERIMENTAL)])
+    AC_MSG_RESULT([    (enable plotting to windows opened by external apps) ])
   else
-    AC_MSG_RESULT([    (disable plotting to windows opened by external apps (EXPERIMENTAL)])
+    AC_MSG_RESULT([    (disable plotting to windows opened by external apps) ])
   fi
 
   if test "$enable_binary_x11_polygon" = yes; then
-    AC_MSG_RESULT([    (with binary polygon protocol (EXPERIMENTAL))])
+    AC_MSG_RESULT([    (with binary polygon protocol )])
   else
-    AC_MSG_RESULT([    (without binary polygon protocol (EXPERIMENTAL))])
+    AC_MSG_RESULT([    (without binary polygon protocol )])
   fi
 else
     AC_MSG_RESULT([  X Window System terminal: no (requires X libraries)])
@@ -1205,9 +1221,15 @@ else
 fi
 
 if test "$with_cairo" = yes; then
-  AC_MSG_RESULT([  cairo-based pdf and png terminals: yes (EXPERIMENTAL)])
+  AC_MSG_RESULT([  cairo-based pdf and png terminals: yes ])
 else
   AC_MSG_RESULT([  cairo-based terminals: no (requires cairo>1.2, pango>1.10)])
+fi
+
+if test "$with_lua" = yes; then
+  AC_MSG_RESULT([  lua/TikZ terminal: yes ])
+else
+  AC_MSG_RESULT([  lua/TikZ terminal: no ])
 fi
 
 AC_MSG_RESULT([])
@@ -1251,21 +1273,15 @@ else
 fi
 
 if test "$enable_macros" = yes; then
-  AC_MSG_RESULT([  Command line macros: yes (EXPERIMENTAL)])
+  AC_MSG_RESULT([  Command line macros: yes ])
 else
-  AC_MSG_RESULT([  Command line macros: no (requires string variables)])
+  AC_MSG_RESULT([  Command line macros: no ])
 fi
 
 if test "$enable_objects" = yes; then
-  AC_MSG_RESULT([  Placement of rectangles and other objects: yes (EXPERIMENTAL)])
+  AC_MSG_RESULT([  Placement of rectangles and other objects: yes ])
 else
   AC_MSG_RESULT([  Placement of rectangles and other objects: no])
-fi
-
-if test "$enable_with_image" = yes; then
-  AC_MSG_RESULT([  Plot style image: yes (EXPERIMENTAL)])
-else
-  AC_MSG_RESULT([  Plot style image: no])
 fi
 
 AC_MSG_RESULT([])
@@ -1282,6 +1298,7 @@ fi
     else
       AC_MSG_RESULT([  Readline library: BSD editline library])
     fi
+    AC_MSG_RESULT(  [           WARNING:     editline cannot handle multi-byte characters!])
   else if test "$with_readline" != builtin; then
     if test -n "$gp_tcap"; then
       AC_MSG_RESULT([  Readline library: GNU readline library with $gp_tcap])
@@ -1360,6 +1377,10 @@ if test "$TUTORIAL" = tutorial; then
   AC_MSG_RESULT([  LaTeX tutorial: yes])
 else
   AC_MSG_RESULT([  LaTeX tutorial: no])
+fi
+
+if test "$with_lua" != no; then
+  AC_MSG_RESULT([  TeX *.sty for lua/tikz terminal: yes])
 fi
 
 AC_MSG_RESULT([  Help file: yes (always), in $GIHDIR/gnuplot.gih])

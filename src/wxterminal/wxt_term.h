@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_term.h,v 1.10 2008/02/24 19:49:37 sfeam Exp $
+ * $Id: wxt_term.h,v 1.12 2009/06/13 05:23:56 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_term.h */
@@ -73,9 +73,8 @@ int wxt_text_angle(int ang);
 void wxt_fillbox(int style, unsigned int x1, unsigned int y1, unsigned int width, unsigned int height);
 int wxt_set_font __PROTO ((const char *font));
 void wxt_pointsize(double ptsize);
-#ifdef WITH_IMAGE
 void wxt_image(unsigned int M, unsigned int N, coordval * image, gpiPoint * corner, t_imagecolor color_mode);
-#endif /*WITH_IMAGE*/
+
 # ifdef USE_MOUSE
 int wxt_waitforinput(void);
 void wxt_put_tmptext(int, const char str[]);
@@ -102,6 +101,8 @@ void wxt_update_size __PROTO((int number));
 /* state variables shared between wxt.trm and wxt_gui.cpp */
 extern int wxt_window_number;
 extern TBOOLEAN wxt_enhanced_enabled;
+extern TBOOLEAN wxt_dashed;
+extern double wxt_dashlength;
 extern int wxt_persist;
 extern int wxt_raise;
 extern int wxt_ctrl;

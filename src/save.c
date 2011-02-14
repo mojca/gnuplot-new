@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: save.c,v 1.169 2008/12/11 06:53:14 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: save.c,v 1.172 2009/06/06 18:28:43 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - save.c */
@@ -997,6 +997,8 @@ save_tics(FILE *fp, AXIS_INDEX axis)
 		(axis_array[axis].ticdef.type == TIC_USER) ? "" : "add");
 	fputs(" (", fp);
 	for (t = axis_array[axis].ticdef.def.user; t != NULL; t = t->next) {
+	    if (t->level < 0)	/* Don't save ticlabels read from data file */
+		continue;
 	    if (t->label)
 		fprintf(fp, "\"%s\" ", conv_text(t->label));
 	    SAVE_NUM_OR_TIME(fp, (double) t->position, axis);
@@ -1229,14 +1231,12 @@ save_data_func_style(FILE *fp, const char *which, enum PLOT_STYLE style)
     case LABELPOINTS:
 	fputs("labels\n", fp);
 	break;
-#ifdef WITH_IMAGE
     case IMAGE:
 	fputs("image\n", stderr);
 	break;
     case RGBIMAGE:
 	fputs("rgbimage\n", stderr);
 	break;
-#endif
     default:
 	fputs("---error!---\n", fp);
     }
@@ -1264,6 +1264,7 @@ save_linetype(FILE *fp, lp_style_type *lp, TBOOLEAN show_point)
 	    fprintf(fp, " pointsize default");
 	else
 	    fprintf(fp, " pointsize %.3f", lp->p_size);
+	fprintf(fp, " pointinterval %d", lp->p_interval);
     }
 	
 }

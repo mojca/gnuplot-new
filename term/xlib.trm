@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: xlib.trm,v 1.21 2007/12/20 03:15:55 sfeam Exp $
+ * $Id: xlib.trm,v 1.23 2009/03/26 00:49:29 sfeam Exp $
  */
 
 /* GNUPLOT - xlib.trm */
@@ -77,9 +77,7 @@ TERM_TABLE_START(xlib_driver)
 #endif
     , X11_make_palette, 0 /* X11_previous_palette */ ,
     X11_set_color, X11_filled_polygon
-#ifdef WITH_IMAGE
     , X11_image
-#endif
     , ENHX11_OPEN, ENHX11_FLUSH, do_enh_writec
 TERM_TABLE_END(xlib_driver)
 
@@ -101,7 +99,7 @@ START_HELP(xlib)
 " The `xlib` terminal driver supports the X11 Windows System.  It generates",
 " gnuplot_x11 commands, but sends them to the output file specified by",
 " `set output '<filename>'`. `set term x11` is equivalent to",
-" `set terminal xlib; set output \"|gnuplot_x11 -noevents\"`.",
+" `set output \"|gnuplot_x11 -noevents\"; set term xlib`.",
 " `xlib` takes the same set of options as `x11`."
 END_HELP(xlib)
 #endif

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: command.c,v 1.178 2008/12/12 21:06:13 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: command.c,v 1.181 2009/02/03 22:26:19 mikulik Exp $"); }
 #endif
 
 /* GNUPLOT - command.c */
@@ -530,6 +530,15 @@ define()
 	memcpy(c_dummy_var, save_dummy, sizeof(save_dummy));
 	m_capture(&(udf->definition), start_token, c_token - 1);
 	dummy_func = NULL;	/* dont let anyone else use our workspace */
+
+	/* Save function definition in a user-accessible variable */
+	if (1) {
+	    char *tmpnam = gp_alloc(8+strlen(udf->udf_name), "varname");
+	    strcpy(tmpnam, "GPFUN_");
+	    strcat(tmpnam, udf->udf_name);
+	    fill_gpval_string(tmpnam, udf->definition);
+	    free(tmpnam);
+	}
     } else {
 	/* variable ! */
 	char *varname = gp_input_line + token[c_token].start_index;
@@ -803,6 +812,8 @@ changedir_command()
     gp_expand_tilde(&save_file);
     if (changedir(save_file))
 	int_error(c_token, "Can't change to this directory");
+    else
+	update_gpval_variables(5);
     free(save_file);
 }
 
@@ -1857,7 +1868,6 @@ changedir(char *path)
     return chdir(path);
 #endif /* MSDOS etc. */
 }
-
 
 /* used by replot_command() */
 void

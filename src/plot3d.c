@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.167 2008/10/27 03:37:28 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.171 2009/04/12 22:27:04 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot3d.c */
@@ -765,7 +765,6 @@ get_3ddata(struct surface_points *this_plot)
 		break;		/* two blank lines */
 	    if (j == DF_FIRST_BLANK) {
 
-#if defined(WITH_IMAGE)
 		/* Images are in a sense similar to isocurves.
 		 * However, the routine for images is written to
 		 * compute the two dimensions of coordinates by
@@ -778,7 +777,7 @@ get_3ddata(struct surface_points *this_plot)
 		||  (this_plot->plot_style == RGBIMAGE)
 		||  (this_plot->plot_style == RGBA_IMAGE))
 		    continue;
-#endif
+
 		if (this_plot->plot_style == VECTOR)
 		    continue;
 
@@ -1034,7 +1033,6 @@ get_3ddata(struct surface_points *this_plot)
 	    if (this_plot->plot_style == LABELPOINTS)
 		store_label(this_plot->labels, cp, xdatum, df_tokens[3], color);
 
-#ifdef WITH_IMAGE
 	    if (this_plot->plot_style == RGBIMAGE || this_plot->plot_style == RGBA_IMAGE) {
 		/* We will autoscale the RGB components to  a total range [0:255]
 		 * so we don't need to do any fancy scaling here.
@@ -1044,7 +1042,6 @@ get_3ddata(struct surface_points *this_plot)
 		cp->CRD_B = v[5];
 		cp->CRD_A = v[6];	/* Alpha channel */
 	    }
-#endif
 
 	come_here_if_undefined:
 	    /* some may complain, but I regard this as the correct use of goto */
@@ -1327,7 +1324,7 @@ eval_3dplots()
 
 		/* for capture to key */
 		this_plot->token = end_token = c_token - 1;
-		this_plot->plot_num = plot_num;
+		this_plot->iteration = iteration; /* FIXME: Is this really needed? */
 
 		/* this_plot->token is temporary, for errors in get_3ddata() */
 
@@ -1422,6 +1419,19 @@ eval_3dplots()
 			}
 		    }
 		    c_token++;
+
+		    if (almost_equals(c_token,"col$umnheader")) {
+			df_set_key_title_columnhead(this_plot->plot_type);
+		    } else 
+
+#ifdef BACKWARDS_COMPATIBLE
+		    /* Annoying backwards-compatibility hack - deprecate! */
+		    if (isanumber(c_token)) {
+			c_token--;
+			df_set_key_title_columnhead(this_plot->plot_type);
+		    } else
+#endif
+
 		    if (!(this_plot->title = try_to_get_string()))
 			int_error(c_token, "expecting \"title\" for plot");
 		    set_title = TRUE;
@@ -1468,12 +1478,11 @@ eval_3dplots()
 			}
 		    }
 
-#ifdef WITH_IMAGE
 		    if (this_plot->plot_style == IMAGE
 		    ||  this_plot->plot_style == RGBA_IMAGE
 		    ||  this_plot->plot_style == RGBIMAGE)
 			get_image_options(&this_plot->image_properties);
-#endif
+
 		    set_with = TRUE;
 		    continue;
 		}
@@ -1491,6 +1500,13 @@ eval_3dplots()
 		if (almost_equals(c_token, "nocon$tours")) {
 		    c_token++;
 		    this_plot->opt_out_of_contours = TRUE;
+		    continue;
+		}
+
+		/* "set surface" is global.  Allow individual plots to opt out */
+		if (almost_equals(c_token, "nosur$face")) {
+		    c_token++;
+		    this_plot->opt_out_of_surface = TRUE;
 		    continue;
 		}
 
@@ -1648,19 +1664,16 @@ eval_3dplots()
 		&& this_plot->plot_style != PM3DSURFACE
 		/* don't increment the default line/point properties if
 		 * this_plot is an EXPLICIT pm3d surface plot */
-#ifdef WITH_IMAGE
 		&& this_plot->plot_style != IMAGE
 		&& this_plot->plot_style != RGBIMAGE
 		&& this_plot->plot_style != RGBA_IMAGE
 		/* same as above, for an (rgb)image plot */
-#endif
 		) {
 		if (this_plot->plot_style & PLOT_STYLE_HAS_POINT)
 		    point_num += 1 + (draw_contour != 0) + (hidden3d != 0);
 		line_num += 1 + (draw_contour != 0) + (hidden3d != 0);
 	    }
 
-#ifdef WITH_IMAGE
 	    if (this_plot->plot_style == IMAGE)
 		this_plot->lp_properties.use_palette = 1;
 	    if (this_plot->plot_style == RGBIMAGE || this_plot->plot_style == RGBA_IMAGE) {
@@ -1669,7 +1682,6 @@ eval_3dplots()
 		if (CB_AXIS.autoscale & AUTOSCALE_MAX)
 		    CB_AXIS.max = 255;
 	    }
-#endif
 
 	    /* now get the data... having to think hard here...
 	     * first time through, we fill in this_plot. For second
@@ -1710,7 +1722,7 @@ eval_3dplots()
 		    df_return = get_3ddata(this_plot);
 		    /* for second pass */
 		    this_plot->token = c_token;
-		    this_plot->plot_num = plot_num;
+		    this_plot->iteration = iteration;
 
 		    if (this_plot->num_iso_read == 0)
 			this_plot->plot_type = NODATA;
@@ -1743,6 +1755,7 @@ eval_3dplots()
 
 		    this_plot->plot_type = DATA3D;
 		    this_plot->plot_style = this_style;
+		    this_plot->iteration = iteration;
 		    /* Struct copy */
 		    this_plot->lp_properties = *these_props;
 		} while (df_return != DF_EOF);
@@ -1753,7 +1766,7 @@ eval_3dplots()
 	    } else {		/* not a data file */
 		tp_3d_ptr = &(this_plot->next_sp);
 		this_plot->token = c_token;	/* store for second pass */
-		this_plot->plot_num = plot_num;
+		this_plot->iteration = iteration;
 	    }
 
 	    if (empty_iteration())
@@ -1929,13 +1942,14 @@ eval_3dplots()
 		/* we saved it from first pass */
 		c_token = this_plot->token;
 
-		/* one data file can make several plots */
-		i = this_plot->plot_num;
-		do
+		/* we may have seen this one data file in multiple iterations */
+		i = this_plot->iteration;
+		do {
 		    this_plot = this_plot->next_sp;
-		while (this_plot
+		} while (this_plot
 			&& this_plot->token == c_token
-			&& this_plot->plot_num == i);
+			&& this_plot->iteration == i
+			);
 
 	    }			/* !is_definition */
 

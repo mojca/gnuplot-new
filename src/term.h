@@ -1,5 +1,5 @@
 /*
- * $Id: term.h,v 1.40 2008/05/31 21:38:13 sfeam Exp $
+ * $Id: term.h,v 1.42 2009/01/09 00:30:35 sfeam Exp $
  */
 
 /* GNUPLOT - term.h */
@@ -285,6 +285,9 @@
 /* obsolete: use 'set term postscript level1 */
 /* #include "ai.trm" */
 
+/* HTML Canvas terminal */
+#include "canvas.trm"
+
 /* Computer Graphics Metafile (eg ms office) */
 #include "cgm.trm"
 
@@ -447,6 +450,10 @@
 
 #ifdef HAVE_CAIROPDF
 # include "cairo.trm"
+#endif
+
+#ifdef HAVE_LUA
+#include "lua.trm"
 #endif
 
 #endif /* !SHORT_TERMLIST */

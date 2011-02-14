@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: misc.c,v 1.105 2008/12/10 06:53:13 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: misc.c,v 1.109 2009/06/06 18:28:43 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - misc.c */
@@ -634,9 +634,7 @@ expecting 'lines', 'points', 'linespoints', 'dots', 'impulses',\n\
 \t'histeps', 'filledcurves', 'boxes', 'boxerrorbars', 'boxxyerrorbars',\n\
 \t'vectors', 'financebars', 'candlesticks', 'errorlines', 'xerrorlines',\n\
 \t'yerrorlines', 'xyerrorlines', 'pm3d', 'labels', 'histograms'"
-#ifdef WITH_IMAGE
 ",\n\t 'image', 'rgbimage'"
-#endif
 );
 	ps = LINES;
     }
@@ -740,14 +738,15 @@ need_fill_border(struct fill_style_type *fillstyle)
 void
 lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 {
-    if (allow_ls &&
-	(almost_equals(c_token, "lines$tyle") || equals(c_token, "ls"))) {
-	c_token++;
-	lp_use_properties(lp, int_expression());
-    } else {
 	/* avoid duplicating options */
 	int set_lt = 0, set_pal = 0, set_lw = 0, set_pt = 0, set_ps = 0;
 
+	if (allow_ls &&
+	    (almost_equals(c_token, "lines$tyle") || equals(c_token, "ls"))) {
+	    c_token++;
+	    lp_use_properties(lp, int_expression());
+	} 
+    
 	while (!END_OF_COMMAND) {
 	    if (almost_equals(c_token, "linet$ype") || equals(c_token, "lt")) {
 		if (set_lt++)
@@ -836,9 +835,6 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		continue;
 	    }
 
-	    /* HBB 20010622: restructured to allow for more descriptive
-	     * error message, here. Would otherwise only print out
-	     * 'undefined variable: pointtype' --- rather unhelpful. */
 	    if (almost_equals(c_token, "pointt$ype") || equals(c_token, "pt")) {
 		if (allow_point) {
 		    if (set_pt++)
@@ -875,20 +871,24 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		continue;
 	    }
 
+	    if (almost_equals(c_token, "pointi$nterval") || equals(c_token, "pi")) {
+		c_token++;
+		if (allow_point) {
+		    lp->p_interval = int_expression();
+		} else {
+		    int_warn(c_token, "No pointinterval specifier allowed, here");
+		    int_expression();
+		}
+		continue;
+	    }
+
+
 	    /* unknown option catched -> quit the while(1) loop */
 	    break;
 	}
 
 	if (set_lt > 1 || set_pal > 1 || set_lw > 1 || set_pt > 1 || set_ps > 1)
 	    int_error(c_token, "duplicated arguments in style specification");
-
-#if defined(__FILE__) && defined(__LINE__) && defined(DEBUG_LP)
-	fprintf(stderr,
-		"lp_properties at %s:%d : lt: %d, lw: %.3f, pt: %d, ps: %.3f\n",
-		__FILE__, __LINE__, lp->l_type, lp->l_width, lp->p_type,
-		lp->p_size);
-#endif
-    }
 }
 
 /* <fillstyle> = {empty | solid {<density>} | pattern {<n>}} {noborder | border {<lt>}} */
@@ -1216,26 +1216,9 @@ arrow_parse(
 	if (set_layer>1 || set_line>1 || set_head>1 || set_headsize>1 || set_headfilled>1)
 	    int_error(c_token, "duplicated arguments in style specification");
 
-#if defined(__FILE__) && defined(__LINE__) && defined(DEBUG_LP)
-	arrow->layer = 0;
-	arrow->lp_properties = tmp_lp_style;
-	arrow->head = 1;
-	arrow->head_length = 0.0;
-	arrow->head_lengthunit = first_axes;
-	arrow->head_angle = 15.0;
-	arrow->head_backangle = 90.0;
-	arrow->head_filled = 0;
-	fprintf(stderr,
-		"arrow_properties at %s:%d : layer: %d, lt: %d, lw: %.3f, head: %d, headlength/unit: %.3f/%d, headangles: %.3f/%.3f, headfilled %d\n",
-		__FILE__, __LINE__, arrow->layer, arrow->lp_properties.l_type,
-		arrow->lp_properties.l_width, arrow->head, arrow->head_length,
-		arrow->head_lengthunit, arrow->head_angle,
-		arrow->head_backangle, arrow->head_filled);
-#endif
     }
 }
 
-#ifdef WITH_IMAGE
 void
 get_image_options(t_image *image)
 {
@@ -1245,4 +1228,3 @@ get_image_options(t_image *image)
     }
 
 }
-#endif

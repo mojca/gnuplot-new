@@ -1,5 +1,5 @@
 /* Hello, Emacs: this is -*-C-*- !
- * $Id: post.trm,v 1.237 2008/10/10 22:23:20 mikulik Exp $
+ * $Id: post.trm,v 1.244 2009/06/08 04:37:29 sfeam Exp $
  */
 
 /* GNUPLOT - post.trm */
@@ -109,9 +109,7 @@ TERM_PUBLIC int PS_make_palette (t_sm_palette *);
 TERM_PUBLIC void PS_previous_palette (void);
 TERM_PUBLIC void PS_set_color (t_colorspec *);
 TERM_PUBLIC void PS_filled_polygon (int, gpiPoint *);
-#ifdef WITH_IMAGE
 TERM_PUBLIC void PS_image __PROTO((unsigned int, unsigned int, coordval *, gpiPoint *, t_imagecolor));
-#endif
 
 /* To support "set term post enhanced" */
 TERM_PUBLIC void ENHPS_put_text __PROTO((unsigned int x, unsigned int y, const char *str));
@@ -180,6 +178,7 @@ typedef struct ps_params_t {
     TBOOLEAN duplex_option;           /* one of duplex or simplex specified? */
     TBOOLEAN duplex_state;
     TBOOLEAN rounded;                 /* rounded linecaps and linejoins */
+    TBOOLEAN clipped;                 /* path clipped to BoundingBox? */
     struct ps_fontfile_def *first_fontfile;
     char font[MAX_ID_LEN+1];          /* name of font */
     float fontsize;                     /* size of font in pts */
@@ -195,8 +194,8 @@ typedef struct ps_params_t {
 #define POST_PARAMS_DEFAULT { \
     PSTERM_POSTSCRIPT, 50, 50, \
     PSTERM_LANDSCAPE, FALSE, FALSE, FALSE, FALSE, 1.0, 1.0, FALSE, \
-    FALSE, FALSE, NULL, "Helvetica", 14, FALSE, FALSE, 2000, 0.003, \
-    FALSE, TRUE \
+    FALSE, FALSE, FALSE, NULL, "Helvetica", 14, FALSE, FALSE, 2000, 0.003, \
+    FALSE, TRUE, FALSE \
 }
 
 static ps_params_t post_params = POST_PARAMS_DEFAULT;
@@ -205,8 +204,8 @@ static const ps_params_t post_params_default = POST_PARAMS_DEFAULT;
 #define EPSLATEX_PARAMS_DEFAULT { \
     PSTERM_EPSLATEX, 50, 50, \
     PSTERM_EPS, FALSE, FALSE, TRUE, FALSE, 1.0, 1.0, FALSE, \
-    FALSE, FALSE, NULL, "", 11, TRUE, FALSE, 2000, 0.003, \
-    FALSE, FALSE \
+    FALSE, FALSE, FALSE, NULL, "", 11, TRUE, FALSE, 2000, 0.003, \
+    FALSE, FALSE, FALSE \
 }
 static ps_params_t epslatex_params = EPSLATEX_PARAMS_DEFAULT;
 static const ps_params_t epslatex_params_default = EPSLATEX_PARAMS_DEFAULT;
@@ -214,8 +213,8 @@ static const ps_params_t epslatex_params_default = EPSLATEX_PARAMS_DEFAULT;
 #define PSLATEX_PARAMS_DEFAULT { \
     PSTERM_PSLATEX, 0, 0, \
     PSTERM_EPS, FALSE, FALSE, TRUE, FALSE, 1.0, 1.0, FALSE, \
-    FALSE, FALSE, NULL, "", 0, FALSE, TRUE, 2000, 0.003, \
-    FALSE, FALSE \
+    FALSE, FALSE, FALSE, NULL, "", 0, FALSE, TRUE, 2000, 0.003, \
+    FALSE, FALSE, FALSE \
 }
 static ps_params_t pslatex_params = PSLATEX_PARAMS_DEFAULT;
 static const ps_params_t pslatex_params_default = PSLATEX_PARAMS_DEFAULT;
@@ -223,8 +222,8 @@ static const ps_params_t pslatex_params_default = PSLATEX_PARAMS_DEFAULT;
 #define PSTEX_PARAMS_DEFAULT { \
     PSTERM_PSTEX, 0, 0, \
     PSTERM_EPS, FALSE, FALSE, TRUE, FALSE, 1.0, 1.0, FALSE, \
-    FALSE, FALSE, NULL, "", 0, FALSE, TRUE, 2000, 0.003, \
-    FALSE, FALSE \
+    FALSE, FALSE, FALSE, NULL, "", 0, FALSE, TRUE, 2000, 0.003, \
+    FALSE, FALSE, FALSE \
 }
 static ps_params_t pstex_params = PSTEX_PARAMS_DEFAULT;
 static const ps_params_t pstex_params_default = PSTEX_PARAMS_DEFAULT;
@@ -461,7 +460,8 @@ PS_escape_string(char *origstr, char *escapelist)
 static int PS_pen_x, PS_pen_y;
 static int PS_taken;
 static int PS_linetype_last;
-static double PS_linewidth_last; /* HBB NEW 20031219 */
+static double PS_linewidth_last;
+static double PS_linewidth_current;
 static TBOOLEAN PS_relative_ok;
 
 /* HBB 990914: PS_SOLID is already used by the WIN32 API headers.
@@ -473,7 +473,7 @@ enum PS_id {
     PS_MONOCHROME, PS_COLOR, PS_BLACKTEXT, PS_COLORTEXT,
     PS_SOLIDE, PS_DASHED, PS_DASHLENGTH, PS_LINEWIDTH,
     PS_SIMPLEX, PS_DUPLEX, PS_DEFAULTPLEX,
-    PS_ROUNDED, PS_NOROUNDED, PS_FONTFILE, PS_NOFONTFILES,
+    PS_ROUNDED, PS_NOROUNDED, PS_CLIP, PS_NOCLIP, PS_FONTFILE, PS_NOFONTFILES,
     PS_PALFUNCPARAM,
     PS_LEVEL1, PS_LEVELDEFAULT, PS_FONT,
     PSLATEX_ROTATE, PSLATEX_NOROTATE, PSLATEX_AUXFILE, PSLATEX_NOAUXFILE,
@@ -509,6 +509,8 @@ static struct gen_table PS_opts[] =
     { "defaultp$lex", PS_DEFAULTPLEX },
     { "butt", PS_NOROUNDED },
     { "rou$nded", PS_ROUNDED },
+    { "clip", PS_CLIP },
+    { "noclip", PS_NOCLIP },
     { "fontf$ile", PS_FONTFILE },
     { "nofontf$iles", PS_NOFONTFILES },
     { "palf$uncparam", PS_PALFUNCPARAM },
@@ -541,7 +543,7 @@ PS_options()
     TBOOLEAN set_orientation = FALSE, set_enhanced = FALSE, set_plex = FALSE;
     TBOOLEAN set_level = FALSE, set_color = FALSE, set_dashed = FALSE;
     TBOOLEAN set_dashlen = FALSE, set_linewidth = FALSE, set_round = FALSE;
-    TBOOLEAN set_palfunc = FALSE, set_colortext = FALSE;
+    TBOOLEAN set_clip = FALSE, set_palfunc = FALSE, set_colortext = FALSE;
     TBOOLEAN set_standalone = FALSE, set_epslheader = FALSE;
     TBOOLEAN set_pslrotate = FALSE, set_pslauxfile = FALSE;
     TBOOLEAN set_psloldstyle = FALSE, set_font = FALSE, set_fontsize = FALSE;
@@ -767,6 +769,7 @@ PS_options()
 			  "extraneous argument in set terminal %s",term->name);
 	    set_color = TRUE;
 	    ps_params->color = FALSE;
+	    term->flags |= TERM_MONOCHROME;
 	    c_token++;
 	    break;
 	case PS_COLOR:
@@ -775,6 +778,7 @@ PS_options()
 			  "extraneous argument in set terminal %s",term->name);
 	    set_color = TRUE;
 	    ps_params->color = TRUE;
+	    term->flags &= ~TERM_MONOCHROME;
 	    c_token++;
 	    break;
 	case PS_BLACKTEXT:
@@ -871,6 +875,22 @@ PS_options()
 			  "extraneous argument in set terminal %s",term->name);
 	    set_round = TRUE;
 	    ps_params->rounded = FALSE;
+	    c_token++;
+	    break;
+	case PS_CLIP:
+	    if (set_clip)
+		int_error(c_token,
+			  "extraneous argument in set terminal %s",term->name);
+	    set_clip = TRUE;
+	    ps_params->clipped = TRUE;
+	    c_token++;
+	    break;
+	case PS_NOCLIP:
+	    if (set_clip)
+		int_error(c_token,
+			  "extraneous argument in set terminal %s",term->name);
+	    set_clip = TRUE;
+	    ps_params->clipped = FALSE;
 	    c_token++;
 	    break;
 	case PS_FONTFILE: {
@@ -1125,14 +1145,15 @@ PS_options()
 	term_options[0] = '\0';
 
     sprintf(tmp_term_options,"   %s %s %s \\\n\
-   %s dashlength %.1f linewidth %.1f %s \\\n",
+   %s dashlength %.1f linewidth %.1f %s %s \\\n",
 	    ps_params->level1 ? "level1" : "leveldefault",
 	    ps_params->color ? "color" : "monochrome",
 	    ps_params->blacktext ? "blacktext" : "colortext",
 	    ps_params->solid ? "solid" : "dashed",
 	    ps_params->dash_length,
 	    ps_params->linewidth_factor,
-	    ps_params->rounded ? "rounded" : "butt");
+	    ps_params->rounded ? "rounded" : "butt",
+	    ps_params->clipped ? "clip" : "noclip");
     strcat(term_options,tmp_term_options);
 
     sprintf(tmp_term_options,"   palfuncparam %d,%g \\\n   ",
@@ -1461,7 +1482,7 @@ PS_common_init(
 %%%%BeginProlog\n\
 /gnudict 256 dict def\ngnudict begin\n\
 %%\n\
-%% The following 7 true/false flags may be edited by hand if required.\n\
+%% The following true/false flags may be edited by hand if desired.\n\
 %% The unit line width and grayscale image gamma correction may also be changed.\n\
 %%\n\
 /Color %s def\n\
@@ -1471,6 +1492,7 @@ PS_common_init(
 /Landscape %s def\n\
 /Level1 %s def\n\
 /Rounded %s def\n\
+/ClipToBoundingBox %s def\n\
 /TransparentPatterns false def\n\
 /gnulinewidth %.3f def\n\
 /userlinewidth gnulinewidth def\n\
@@ -1567,6 +1589,7 @@ end\n\
 	    ps_params->psformat == PSTERM_LANDSCAPE ? "true" : "false",
 	    ps_params->level1 ? "true" : "false",
 	    ps_params->rounded ? "true" : "false",
+	    ps_params->clipped ? "true" : "false",
 	    PS_LW*ps_params->linewidth_factor,	/* line width */
 	    (int)(t->v_char)/(-3),	/* shift for vertical centring */
 	    PS_SC*1.0,	/* dash length */
@@ -1591,6 +1614,19 @@ end\n\
 	if (outstr2)
 	    free(outstr2);
     }
+
+    /* HH: Clip to BoundingBox if the corresponding flag is toggled */
+    fprintf(gppsfile,"\
+/doclip {\n\
+  ClipToBoundingBox {\n\
+    newpath %d %d moveto %d %d lineto %d %d lineto %d %d lineto closepath\n\
+    clip\n\
+  } if\n\
+} def\n", 
+	    xoff + bb_xmin, yoff + bb_ymin, 
+	    xoff + bb_xmax, yoff + bb_ymin, 
+	    xoff + bb_xmax, yoff + bb_ymax, 
+	    xoff + bb_xmin, yoff + bb_ymax);
 
     /* Dump the body of the prologue */
     PS_dump_prologue_file("prologue.ps");
@@ -1740,6 +1776,7 @@ PS_graphics()
 
     fprintf(gppsfile,"\
 gnudict begin\ngsave\n\
+doclip\n\
 %d %d translate\n\
 %.3f %.3f scale\n",
 	    ps_common_xoff, ps_common_yoff,
@@ -1755,7 +1792,8 @@ gnudict begin\ngsave\n\
     PS_relative_ok = FALSE;
     PS_pen_x = PS_pen_y = -4000;
     PS_taken = 0;
-    PS_linewidth_last = PS_linetype_last =  LT_UNDEFINED;
+    PS_linetype_last = LT_UNDEFINED;
+    PS_linewidth_last = PS_linewidth_current = LT_UNDEFINED;
 }
 
 
@@ -1807,6 +1845,7 @@ PS_linetype(int linetype)
     PS_FLUSH_PATH;
 
     PS_linetype_last = linetype;
+    PS_linewidth_last = PS_linewidth_current;
     fprintf(gppsfile, "LT%c\n", "wba012345678"[linetype]);
     ps_path_count = 0;
 }
@@ -1818,10 +1857,10 @@ PS_linewidth (double linewidth)
     /* HBB NEW 20031219: don't do anything if nothing changed */
     if (ps_path_count != 0 && PS_linewidth_last == linewidth)
 	return;
-    PS_linewidth_last = linewidth;
-    PS_linetype_last = -1;	/* disable cache for next linetype change */
-
     PS_FLUSH_PATH;
+
+    PS_linewidth_current = linewidth;
+    PS_linetype_last = LT_UNDEFINED;	/* disable cache for next linetype change */
     fprintf(gppsfile, "%.3f UL\n", linewidth);
 
     /*
@@ -2153,7 +2192,7 @@ PS_point(unsigned int x, unsigned int y, int number)
 
     PS_relative_ok = FALSE;
     ps_path_count = 0;
-    PS_linewidth_last = PS_linetype_last =  -1; /* force next linetype change */
+    PS_linetype_last = LT_UNDEFINED; /* force next linetype change */
 }
 
 TERM_PUBLIC void
@@ -2229,7 +2268,7 @@ PS_fillbox(
     }
 
     PS_relative_ok = FALSE;
-    PS_linewidth_last = PS_linetype_last =  -1;
+    PS_linetype_last = LT_UNDEFINED;
 }
 
 
@@ -2695,6 +2734,7 @@ PS_make_header(t_sm_palette *palette)
 
     switch(sm_palette.colorMode) {
     case SMPAL_COLOR_MODE_GRAY:
+	fputs("/InterpolatedColor false def\n", gppsfile);
 	break;  /* nothing to do for gray */
     case SMPAL_COLOR_MODE_RGB:
 	make_palette_formulae();
@@ -2733,8 +2773,23 @@ PS_make_header(t_sm_palette *palette)
 #define G sm_palette.formulaG
 #define B sm_palette.formulaB
 
+/* 18.1.2009 Since the beginning of pm3d, the Color definition switched
+   between gray and colour map. This led to ambiguities for custom colour
+   palettes if they contain grays only. Thus let postscript choose always
+   always colour palette for interpolated colours ('set palette defined',
+   'set palette file') and colour/gray according to Color otherwise
+   ('set palette gray', 'set palette rgb').
+*/
+#if 0
     fprintf(gppsfile, "Color %s and { %% COLOUR vs. GRAY map\n",
 	    (sm_palette.colorMode!=SMPAL_COLOR_MODE_GRAY) ? "true":"false");
+#else
+    if (sm_palette.colorMode == SMPAL_COLOR_MODE_GRAY)
+	fputs("false { % COLOUR vs. GRAY map\n", gppsfile);
+    else
+	fputs("Color InterpolatedColor or { % COLOUR vs. GRAY map\n", gppsfile);
+#endif
+
     fputs("  InterpolatedColor { %% Interpolation vs. RGB-Formula\n",
 	  gppsfile);
     fputs("    /g {stroke pm3dround /grayv exch def interpolate\n", gppsfile);
@@ -2778,7 +2833,12 @@ TERM_PUBLIC void PS_set_color (t_colorspec *colorspec)
 {
     double gray;
 
-    PS_linetype_last = -1;  /* Force next call to linetype to be honored */
+    PS_linetype_last = LT_UNDEFINED;  /* Force next call to linetype to be honored */
+
+    if (PS_linewidth_last != PS_linewidth_current) {
+	PS_linewidth_last = PS_linewidth_current;
+	fprintf(gppsfile, "PL ");
+    }
 
     if (colorspec->type == TC_LT) {
 	int linetype = colorspec->lt;
@@ -2939,8 +2999,6 @@ delete_ps_fontfile(struct ps_fontfile_def *prev, struct ps_fontfile_def *this)
 }
 
 
-#ifdef WITH_IMAGE
-
 static void
 PS_encode85(unsigned long tuple4, unsigned char *tuple5)
 {
@@ -2988,7 +3046,10 @@ PS_encode_image(unsigned int M, unsigned int N, coordval *image, t_imagecolor co
 
 #define ASCII_PER_LINE 78
 
-    total_bits = bits_per_component*M*N*((color_mode == IC_RGB && ps_params->color) ? 3 : 1);
+    /* 18.1.2009 RGB images ("plot ... with rgbimage") are drawn always in color,
+     * i.e. for both "set term post color" and "set term post mono".
+     */
+    total_bits = bits_per_component*M*N*((color_mode == IC_RGB /* && ps_params->color */) ? 3 : 1);
 
     /* At the end of each image line, data is aligned to the nearest 8 bits,
      * which means potentially adding 7 bits per line.
@@ -3017,7 +3078,7 @@ PS_encode_image(unsigned int M, unsigned int N, coordval *image, t_imagecolor co
     i_line = ASCII_PER_LINE;
     i_element = 0;
     coord_remaining = M*N;
-    if (color_mode == IC_RGB && ps_params->color) {
+    if (color_mode == IC_RGB /* && ps_params->color */) {
 	end_of_line *= 3;
 	coord_remaining *= 3;
     }
@@ -3027,7 +3088,7 @@ PS_encode_image(unsigned int M, unsigned int N, coordval *image, t_imagecolor co
 
     while (coord_remaining) {
 	unsigned short us_tmp;
-	if (color_mode == IC_RGB && !ps_params->color) {
+	if (0 /* color_mode == IC_RGB && !ps_params->color */) {
 	    coordval c_tmp;
 	    c_tmp = *coord_ptr++;
 	    c_tmp += *coord_ptr++;
@@ -3162,11 +3223,12 @@ print_five_operand_image(unsigned int M, unsigned int N, gpiPoint *corner, t_ima
     fprintf(gppsfile, "%s%d %d %d\n", space, M, N, bits_per_component);
     fprintf(gppsfile, "%s[ %d 0 0 %d 0 0 ]\n", space, M, N);
     if (ps_params->level1) {
-	fprintf(gppsfile, "/imagebuf %d string def\n", (M*N*bits_per_component*((color_mode == IC_RGB && ps_params->color) ? 3 : 1) + 7)/8);
+	fprintf(gppsfile, "/imagebuf %d string def\n", 
+		(M*N*bits_per_component*((color_mode == IC_RGB /* && ps_params->color */) ? 3 : 1) + 7)/8);
 	fputs("{currentfile imagebuf readhexstring pop}\n", gppsfile);
     } else
 	fprintf(gppsfile, "  currentfile /ASCII85Decode filter\n");
-    if (color_mode == IC_RGB && ps_params->color) {
+    if (color_mode == IC_RGB /* && ps_params->color */) {
 	fprintf(gppsfile, "%sfalse 3\n"
 			  "%scolorimage\n", space, space);
     } else
@@ -3213,7 +3275,14 @@ PS_image (unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_i
     /* Color and gray scale images do not need a palette and can use
      * the 5 operand form of the image routine.
      */
+#if 0
+    /* 18.1.2009 It was decided to use the custom palette (i.e. colours) also
+       for the monochrome postscript output.
+    */
     if ((color_mode == IC_RGB) || (sm_palette.colorMode == SMPAL_COLOR_MODE_GRAY) || !ps_params->color)
+#else
+    if ((color_mode == IC_RGB) || (sm_palette.colorMode == SMPAL_COLOR_MODE_RGB && !ps_params->color) || (sm_palette.colorMode == SMPAL_COLOR_MODE_GRAY))
+#endif
 	five_operand_image = TRUE;
     else
 	five_operand_image = FALSE;
@@ -3258,7 +3327,7 @@ PS_image (unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_i
 	    fprintf(gppsfile, "  %d %d L\n", corner[0].x, corner[0].y);
 	    fputs("  40 -110 R\n"
 		  "  (PS level 2 image) Lshow\n"
-		  "  %% Read data but ignore it\n", gppsfile);
+		  "  % Read data but ignore it\n", gppsfile);
 	    fprintf(gppsfile, "  /imagebuf %d string def\n", num_encoded_bytes);
 	    fputs("  currentfile imagebuf readstring\n"
 		  "} {\n", gppsfile);
@@ -3345,7 +3414,6 @@ PS_image (unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_i
     return;
 }
 
-#endif /* WITH_IMAGE */
 
 /* First look for the GNUPLOT_PS_DIR environment variable
  * If unsuccessful, look for hardcoded absolute path on UNIX,
@@ -3578,7 +3646,7 @@ TERM_TABLE_START(post_driver)
     PS_text, null_scale, PS_graphics, PS_move, PS_vector, 
     PS_linetype, PS_put_text, PS_text_angle, 
     PS_justify_text, PS_point, PS_arrow, PS_set_font, PS_pointsize,
-    TERM_BINARY|TERM_IS_POSTSCRIPT|TERM_CAN_CLIP|TERM_CAN_DASH /*flags*/, 
+    TERM_BINARY|TERM_IS_POSTSCRIPT|TERM_CAN_CLIP|TERM_CAN_DASH|TERM_MONOCHROME, 
     0 /*suspend*/, 0 /*resume*/, PS_fillbox, PS_linewidth
 #ifdef USE_MOUSE
     , 0, 0, 0, 0, 0 /* no mouse support for postscript */
@@ -3587,9 +3655,7 @@ TERM_TABLE_START(post_driver)
     PS_previous_palette, /* write grestore */
     PS_set_color,
     PS_filled_polygon
-#ifdef WITH_IMAGE
     , PS_image
-#endif
     , ENHPS_OPEN, ENHPS_FLUSH, ENHPS_WRITEC
     , PS_layer		/* used only to insert comments */
     , PS_path
@@ -3621,6 +3687,7 @@ START_HELP(00psglobal)
 "                               {dashlength | dl <DL>}",\
 "                               {linewidth | lw <LW>}",\
 "                               {rounded | butt}",\
+"                               {clip | noclip}",\
 "                               {palfuncparam <samples>{,<maxdeviation>}}",\
 "                               {size <XX>{unit},<YY>{unit}}",
 #define PS_COMMON_OPTS2 \
@@ -3656,7 +3723,10 @@ START_HELP(00psglobal)
 " understands level 2 PostScript or higher.",\
 "",\
 " `rounded` sets line caps and line joins to be rounded; `butt` is the",\
-" default, butt caps and mitered joins;",\
+" default, butt caps and mitered joins.",\
+"",\
+" `clip` tells PostScript to clip all output to the bounding box;",\
+" `noclip` is the default.",\
 "",\
 " `palfuncparam` controls how `set palette functions` are encoded as gradients",\
 " in the output. Analytic color component functions (set via",\

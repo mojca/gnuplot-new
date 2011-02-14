@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: axis.c,v 1.75 2008/10/30 22:21:07 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: axis.c,v 1.79 2009/06/06 06:18:20 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - axis.c */
@@ -602,6 +602,9 @@ make_tics(AXIS_INDEX axis, int guide)
     xr = fabs(axis_array[axis].min - axis_array[axis].max);
     if (xr == 0)
 	return 1;	/* Anything will do, since we'll never use it */
+    if (xr >= VERYLARGE)
+	int_error(NO_CARET,"%s axis range undefined or overflow",
+		axis_defaults[axis].name);
     tic = quantize_normal_tics(xr, guide);
     /* FIXME HBB 20010831: disabling this might allow short log axis
      * to receive better ticking... */
@@ -977,7 +980,7 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	step = fabs(step);
 	/* }}} */
 
-	if (minitics) {
+	if (minitics && axis_array[axis].miniticscale != 0) {
 	    /* {{{  figure out ministart, ministep, miniend */
 	    if (minitics == MINI_USER) {
 		/* they have said what they want */
@@ -1140,7 +1143,7 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 		/* }}} */
 
 	    }
-	    if (minitics) {
+	    if (minitics && axis_array[axis].miniticscale != 0) {
 		/* {{{  process minitics */
 		double mplace, mtic;
 		for (mplace = ministart; mplace < miniend; mplace += ministep) {
@@ -1588,6 +1591,8 @@ get_position_default(struct position *pos, enum position_type default_type)
     int axes;
     enum position_type type = default_type;
 
+    memset(pos, 0, sizeof(struct position));
+
     get_position_type(&type, &axes);
     pos->scalex = type;
     GET_NUMBER_OR_TIME(pos->x, axes, FIRST_X_AXIS);
@@ -1605,7 +1610,8 @@ get_position_default(struct position *pos, enum position_type default_type)
     /* z is not really allowed for a screen co-ordinate, but keep it simple ! */
     if (equals(c_token, ",")
        /* Partial fix for ambiguous syntax when trailing comma ends a plot command */
-	&& !(isstringvalue(c_token+1))
+	&& !(isstringvalue(c_token+1)) && !(almost_equals(c_token+1,"newhist$ogram"))
+	&& !(almost_equals(c_token+1,"for"))
        ) {
 	++c_token;
 	get_position_type(&type, &axes);

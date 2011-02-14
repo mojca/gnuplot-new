@@ -1,5 +1,5 @@
 /*
- * $Id: gp_cairo.c,v 1.41 2008/10/10 22:26:21 mikulik Exp $
+ * $Id: gp_cairo.c,v 1.48 2009/03/26 00:49:17 sfeam Exp $
  */
 
 /* GNUPLOT - gp_cairo.c */
@@ -114,6 +114,9 @@ static gchar* gp_cairo_convert_symbol_to_unicode(plot_struct *plot, const char* 
 static void gp_cairo_add_attr(plot_struct *plot, PangoAttrList * AttrList, int start, int end );
 /* add a blank character to the text string and an associated custom shape to the attribute list */
 static void gp_cairo_add_shape( PangoRectangle rect,int position);
+
+/* Average character height as reported back through term->v_char */
+static int avg_vchar = 150;
 
 /* set a cairo pattern or solid fill depending on parameters */
 static void gp_cairo_fill(plot_struct *plot, int fillstyle, int fillpar);
@@ -743,7 +746,10 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string)
 
 	pango_layout_get_extents(layout, &ink_rect, &logical_rect);
 
-	vert_just = ((double)ink_rect.height/2 +(double)ink_rect.y) / PANGO_SCALE;
+	/* EAM Mar 2009 - Adjusting the vertical position for every character fragment */
+	/* leads to uneven baselines.  Better to adjust to the "average" character height */
+	/* vert_just = ((double)ink_rect.height/2 +(double)ink_rect.y) / PANGO_SCALE; */
+	vert_just = avg_vchar/2;
 
 	x = (double) x1;
 	y = (double) y1;
@@ -995,7 +1001,6 @@ void gp_cairo_draw_fillbox(plot_struct *plot, int x, int y, int width, int heigh
 }
 
 
-#ifdef WITH_IMAGE
 /*	corner[0] = (x1,y1) is the upper left corner (in terms of plot location) of
  *	the outer edge of the image.  Similarly, corner[1] = (x2,y2) is the lower
  *	right corner of the outer edge of the image.  (Outer edge means the
@@ -1003,13 +1008,9 @@ void gp_cairo_draw_fillbox(plot_struct *plot, int x, int y, int width, int heigh
  *	corner[2] and corner[3] = (x3,y3) and (x4,y4) define a clipping box in
  *	the primary plot into which all or part of the image will be rendered.
  */
-void gp_cairo_draw_image(plot_struct *plot, coordval * image, int x1, int y1, int x2, int y2, int x3, int y3, int x4, int y4, int M, int N, t_imagecolor color_mode)
+void gp_cairo_draw_image(plot_struct *plot, unsigned int * image, int x1, int y1, int x2, int y2, int x3, int y3, int x4, int y4, int M, int N)
 {
-	int m,n;
-	unsigned int *image255, *image255copy;
 	double scale_x, scale_y;
-	rgb_color rgb1;
-	rgb255_color rgb255;
 	cairo_surface_t *image_surface;
 	cairo_pattern_t *pattern;
 	cairo_matrix_t matrix;
@@ -1019,54 +1020,7 @@ void gp_cairo_draw_image(plot_struct *plot, coordval * image, int x1, int y1, in
 	/* also draw any open polygon set */
 	gp_cairo_end_polygon(plot);
 
-	/* cairo image buffer, upper bits are alpha, then r, g and b
-	 * Depends on endianess */
-	image255 = (unsigned int*) gp_alloc(M*N*sizeof(unsigned int), "gp_cairo : draw image");
-	image255copy = image255;
-
-	/* TrueColor 24-bit plot->color mode */
-	if (color_mode == IC_RGB) {
-		for (n=0; n<N; n++) {
-		for (m=0; m<M; m++) {
-			rgb1.r = *image++;
-			rgb1.g = *image++;
-			rgb1.b = *image++;
-			rgb255_from_rgb1( rgb1, &rgb255 );
-			*image255copy++ = (0xFF<<24) + (rgb255.r<<16) + (rgb255.g<<8) + rgb255.b;
-		}
-		}
-	} else if (color_mode == IC_RGBA) {
-		unsigned char alpha255;
-		double alpha1;
-		for (n=0; n<N; n++) {
-		for (m=0; m<M; m++) {
-			alpha255 = *(image+3);
-			alpha1 = (float)alpha255 / 255.;
-			rgb1.r = alpha1 * (*image++);
-			rgb1.g = alpha1 * (*image++);
-			rgb1.b = alpha1 * (*image++);
-			image++;
-			rgb255_from_rgb1( rgb1, &rgb255 );
-			*image255copy++ = (alpha255<<24)
-					+ (rgb255.r<<16) + (rgb255.g<<8) + rgb255.b;
-		}
-		}
-	/* Palette plot->color lookup from gray value */
-	} else {
-		for (n=0; n<N; n++) {
-		for (m=0; m<M; m++) {
-			if (isnan(*image)) {
-				image++;
-				*image255copy++ = 0x00000000;
-			} else {
-				rgb255maxcolors_from_gray( *image++, &rgb255 );
-				*image255copy++ = (0xFF<<24) + (rgb255.r<<16) + (rgb255.g<<8) + rgb255.b;
-			}
-		}
-		}
-	}
-
-	image_surface = cairo_image_surface_create_for_data((unsigned char*) image255,
+	image_surface = cairo_image_surface_create_for_data((unsigned char*) image,
 				CAIRO_FORMAT_ARGB32, M, N, 4*M);
 
 	scale_x = (double)M/fabs( x2 - x1 );
@@ -1103,9 +1057,7 @@ void gp_cairo_draw_image(plot_struct *plot, coordval * image, int x1, int y1, in
 
 	cairo_pattern_destroy( pattern );
 	cairo_surface_destroy( image_surface );
-	free( image255 );
 }
-#endif /*WITH_IMAGE*/
 
 /* =======================================================================
  * Enhanced text mode support
@@ -1475,7 +1427,8 @@ void gp_cairo_enhanced_finish(plot_struct *plot, int x, int y)
 	pango_layout_set_attributes (layout, gp_cairo_enhanced_AttrList);
 
 	pango_layout_get_extents(layout, &ink_rect, &logical_rect);
-	vert_just = ((double)ink_rect.height/2 +(double)ink_rect.y) / PANGO_SCALE;
+	/* vert_just = ((double)ink_rect.height/2 +(double)ink_rect.y) / PANGO_SCALE; */
+	vert_just = avg_vchar/2;
 	
 	arg = plot->text_angle * M_PI/180;
 	enh_x = x - vert_just * sin(arg);
@@ -1707,6 +1660,8 @@ void gp_cairo_set_termvar(plot_struct *plot, unsigned int *v_char,
 		*v_char = tmp_v_char;
 	if (h_char)
 		*h_char = tmp_h_char;
+
+	avg_vchar = tmp_v_char;
 }
 
 void gp_cairo_solid_background(plot_struct *plot)

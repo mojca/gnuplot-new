@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: term.c,v 1.182 2008/12/12 21:06:13 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: term.c,v 1.188 2009/07/05 00:09:32 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - term.c */
@@ -93,7 +93,6 @@ static char *RCSid() { return RCSid("$Id: term.c,v 1.182 2008/12/12 21:06:13 sfe
 
 #ifdef USE_MOUSE
 #include "mouse.h"
-static int save_mouse_state = 1;
 #endif
 
 #ifdef _Windows
@@ -776,11 +775,6 @@ term_start_multiplot()
     mp_layout_size_and_offset();
 
 #ifdef USE_MOUSE
-    /* save the state of mouse_setting.on and
-     * disable mouse; call UpdateStatusline()
-     * to eventually turn off statusline */
-    save_mouse_state = mouse_setting.on;
-    mouse_setting.on = 0;
     UpdateStatusline();
 #endif
 }
@@ -817,14 +811,9 @@ term_end_multiplot()
 
     term_end_plot();
 #ifdef USE_MOUSE
-    /* restore the state of mouse_setting.on;
-     * call UpdateStatusline() to turn on
-     * eventually statusline */
-    mouse_setting.on = save_mouse_state;
     UpdateStatusline();
 #endif
 }
-
 
 
 static void
@@ -1306,8 +1295,8 @@ do_arrow(
 #ifdef EAM_OBJECTS
 /* Generic routine for drawing circles or circular arcs.          */
 /* If this feature proves useful, we can add a new terminal entry */
-/* point term->arc() to the API and let termials either provide a */
-/* private implemenation or use this generic one.                 */
+/* point term->arc() to the API and let terminals either provide  */
+/* a private implemenation or use this generic one.               */
 
 void
 do_arc( 
@@ -1550,20 +1539,27 @@ termcomp(const generic *arga, const generic *argb)
  * will change 'term' variable if successful
  */
 struct termentry *
-set_term(int c_token_arg)
+set_term()
 {
     struct termentry *t = NULL;
-    char *input_name;
+    char *input_name = NULL;
 
-    if (!token[c_token_arg].is_token)
-	int_error(c_token_arg, "terminal name expected");
-    input_name = gp_input_line + token[c_token_arg].start_index;
-    t = change_term(input_name, token[c_token_arg].length);
+    if (!END_OF_COMMAND) {
+	input_name = gp_input_line + token[c_token].start_index;
+    	t = change_term(input_name, token[c_token].length);
+	if (!t && isstringvalue(c_token)) {
+	    input_name = try_to_get_string();  /* Cannot fail if isstringvalue succeeded */
+	    t = change_term(input_name, strlen(input_name));
+	    free(input_name);
+	} else {
+    	    c_token++;
+	}
+    }
+
     if (!t)
-	int_error(c_token_arg, "unknown or ambiguous terminal type; type just 'set terminal' for a list");
+	int_error(c_token-1, "unknown or ambiguous terminal type; type just 'set terminal' for a list");
 
     /* otherwise the type was changed */
-
     return (t);
 }
 
@@ -1919,6 +1915,11 @@ test_term()
     char label[MAX_ID_LEN];
     int key_entry_height;
     int p_width;
+    TBOOLEAN already_in_enhanced_text_mode;
+
+    already_in_enhanced_text_mode = t->flags & TERM_ENHANCED_TEXT;
+    if (!already_in_enhanced_text_mode)
+	do_string("set termopt enh",FALSE);
 
     term_start_plot();
     screen_ok = FALSE;
@@ -1943,8 +1944,18 @@ test_term()
     (*t->vector) (0, ymax_t - 1);
     (*t->vector) (0, 0);
     (*t->linetype)(0);
-    (void) (*t->justify_text) (LEFT);
-    (*t->put_text) (t->h_char * 5, ymax_t - t->v_char * 1.5, "Terminal Test");
+
+    /* Echo back the current terminal type */
+    if (!strcmp(term->name,"unknown"))
+	int_error(NO_CARET, "terminal type is unknown");
+    else {
+	char tbuf[64];
+	strcpy(tbuf,term->name);
+	strcat(tbuf,"  terminal test");
+	(void) (*t->justify_text) (LEFT);
+	(*t->put_text) (t->h_char * 2, ymax_t - t->v_char * 0.5, tbuf);
+    }
+
 #ifdef USE_MOUSE
     if (t->set_ruler) {
 	(*t->put_text) (t->h_char * 5, ymax_t - t->v_char * 3, "Mouse and hotkeys are supported, hit: h r m 6");
@@ -1968,6 +1979,16 @@ test_term()
     (*t->put_text) (xmax_t / 2 - t->h_char * 10, ymax_t / 2 + t->v_char * 1.4,
 		    "test of character width:");
     (*t->linetype) (LT_BLACK);
+
+    /* Test for enhanced text */
+    if (t->flags & TERM_ENHANCED_TEXT) {
+	char *tmptext = gp_strdup("Enhanced text:   {x@_{0}^{n+1}}");
+	(*t->put_text) (xmax_t * 0.5, ymax_t * 0.40, tmptext);
+	free(tmptext);
+	if (!already_in_enhanced_text_mode)
+	    do_string("set termopt noenh",FALSE);
+    }
+
     /* test justification */
     (void) (*t->justify_text) (LEFT);
     (*t->put_text) (xmax_t / 2, ymax_t / 2 + t->v_char * 6, "left justified");
@@ -2003,13 +2024,6 @@ test_term()
 	str = " rotated by -45 deg";
 	(*t->text_angle)(-45);
 	(*t->put_text)(t->v_char * 2, ymax_t / 2, str);
-#ifdef HAVE_GD_PNG
-	if (!strcmp(t->name, "png") || !strcmp(t->name, "gif") || !strcmp(t->name, "jpeg")) {
-	    (*t->text_angle)(0);
-	    str = "this terminal supports text rotation only for truetype fonts";
-	    (*t->put_text)(t->v_char * 2 + t->h_char * 4, ymax_t / 2 - t->v_char * 2, str);
-	}
-#endif
     } else {
 	(void) (*t->justify_text) (LEFT);
 	(*t->put_text) (t->h_char * 2, ymax_t / 2 - t->v_char * 2, "can't rotate text");
@@ -2123,34 +2137,42 @@ test_term()
     }
 
     {
-	int cen_x = (int)(0.75 * xmax_t);
+	int cen_x = (int)(0.70 * xmax_t);
 	int cen_y = (int)(0.83 * ymax_t);
 	int radius = xmax_t / 20;
 
-	(*t->linetype)(2);
 	/* test pm3d -- filled_polygon(), but not set_color() */
 	if (t->filled_polygon) {
+	    int i, j;
 #define NUMBER_OF_VERTICES 6
 	    int n = NUMBER_OF_VERTICES;
 	    gpiPoint corners[NUMBER_OF_VERTICES+1];
 #undef  NUMBER_OF_VERTICES
-	    int i;
 
-	    for (i = 0; i < n; i++) {
-		corners[i].x = cen_x + radius * cos(2*M_PI*i/n);
-		corners[i].y = cen_y + radius * sin(2*M_PI*i/n);
+	    for (j=0; j<=1; j++) {
+		int ix = cen_x + j*radius;
+		int iy = cen_y - j*radius/2;
+		for (i = 0; i < n; i++) {
+		    corners[i].x = ix + radius * cos(2*M_PI*i/n);
+		    corners[i].y = iy + radius * sin(2*M_PI*i/n);
+		}
+		corners[n].x = corners[0].x;
+		corners[n].y = corners[0].y;
+		if (j == 0) {
+		    (*t->linetype)(2);
+		    corners->style = FS_OPAQUE;
+		} else {
+		    (*t->linetype)(1);
+		    corners->style = FS_TRANSPARENT_SOLID + (50<<4);
+		}
+		term->filled_polygon(n+1, corners);
 	    }
-	    corners[n].x = corners[0].x;
-	    corners[n].y = corners[0].y;
-	    corners->style = FS_OPAQUE;
-	    term->filled_polygon(n+1, corners);
-	    str = "(color) filled polygon:";
+	    str = "filled polygons:";
 	} else
-	    str = "filled polygons not supported";
+	    str = "No filled polygons";
 	(*t->linetype)(LT_BLACK);
 	i = ((*t->justify_text) (CENTRE)) ? 0 : t->h_char * strlen(str) / 2;
 	(*t->put_text) (cen_x + i, cen_y + radius + t->v_char * 0.5, str);
-	(*t->linetype)(LT_BLACK);
     }
 
     term_end_plot();
@@ -2465,6 +2487,28 @@ enhanced_recursion(
 
     while (*p) {
 	float shift;
+
+	/*
+	 * EAM Jun 2009 - treating bytes one at a time does not work for multibyte
+	 * encodings, including utf-8. If we hit a byte with the high bit set, test
+	 * whether it starts a legal UTF-8 sequence and if so copy the whole thing.  
+	 * Other multibyte encodings are still a problem.
+	 * Gnuplot's other defined encodings are all single-byte; for those we
+	 * really do want to treat one byte at a time.
+	 */
+	if ((*p & 0x80) && (encoding == S_ENC_DEFAULT || encoding == S_ENC_UTF8)) {
+	    unsigned long utf8char;
+	    const char *nextchar = p;
+
+	    (term->enhanced_open)(fontname, fontsize, base, widthflag, showflag, overprint);
+	    if (utf8toulong(&utf8char, &nextchar)) {	/* Legal UTF8 sequence */
+		while (p < nextchar)
+		    (term->enhanced_writec)(*p++);
+		p--;
+	    } else {					/* Some other multibyte encoding? */
+		(term->enhanced_writec)(*p);
+	    }
+	} else
 
 	switch (*p) {
 	case '}'  :

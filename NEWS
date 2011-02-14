@@ -1,13 +1,13 @@
 New features, changes and fixes since gnuplot version 4.2
 =========================================================
 
+* NEW linetype property 'pointinterval'
 * NEW gnuplot.exe is a full-featured console mode gnuplot executable for Windows
-* NEW command line option -e "command list"
 * NEW plot style "with circles"
 * NEW object types circle, ellipse, and polygon
-* NEW preliminary export of information needed for external mousing scripts
 * NEW options front and back to "set colorbox"
 * NEW x11 can plot into a window opened and managed by an external application
+* NEW gd terminal can use fonts through fontconfig (libgd version > 2.0.35)
 * NEW optional 3 columns of data to generate histogram errorbars
 * NEW 'volatile' data, including inline data, can be replotted without rereading
 * NEW 'refresh' command replots without rereading data if possible
@@ -17,19 +17,26 @@ New features, changes and fixes since gnuplot version 4.2
 * NEW iteration within a plot command; e.g. plot for [i=1:10] foo(i)
 * NEW iteration with set/unset commands
 * NEW operators '=' and ',' in expression syntax
-* NEW pdf and png terminals based on cairo and pango
+* NEW terminal lua generates commands for interpretation by external lua script
+* NEW terminal tikz uses a lua script to generate output for latex TikZ package
+* NEW terminal canvas for HTML 5 canvas element
+* NEW terminal pdfcairo based on cairo and pango
+* NEW terminal pngcairo based on cairo and pango
+* NEW terminal dpu414 - Seiko DPU-414 thermal printer
 * NEW error status variables GPVAL_ERRNO and GPVAL_ERRMSG
 * NEW variables GPVAL_LAST_PLOT, GPVAL_{S}PLOT, GPVAL_MULTIPLOT
 * NEW variables GPVAL_VIEW_{MAP|ROT_X|ROT_Z|SCALE|ZSCALE}, GPVAL_TERMINALS
+* NEW variables GPVAL_PWD
+* NEW per-plot export of information needed for external mousing scripts
 * NEW support for dashed linetypes in additional terminals
 * NEW the 'bind' command accepts non-keyboard triggers, e.g. 'close'
+* NEW commands 'show bind' and 'reset bind'
 * NEW individual plots can be omitted from autoscaling of axis ranges
 * NEW more smoothing options: new kernels (for dgrid3d) and 'smooth cumulative'
-* NEW commands 'show bind' and 'reset bind'
-* NEW terminal dpu414 - Seiko DPU-414 thermal printer
 * NEW command 'evaluate' executes commands from a string variable
 * NEW z-axis tic labels can be colored by Z value
 * NEW command 'set view equal {xy|xyz}' forces axes in a 3D plot to the same scale
+* NEW 'set pm3d interpolate m,n' supports also non-positive m,n as nbs of points
 * FIX remove the limit of 64 characters read as string data from a data file
 * FIX remainder of command line is not lost after a "load" command
 * FIX more complete support for locale internationalization, UTF-8 encoding
@@ -40,6 +47,7 @@ New features, changes and fixes since gnuplot version 4.2
 * FIX 2nd colour in the colour box for negative palette in postscript
 * FIX interpolatation for pm3d surfaces given by both z and colour coordinates
 * FIX 'set datafile binary format=...' was documented, but not implemented
+* FIX enhanced text mode treatment of UTF-8 characters
 * CHANGE syntax of 'set datafile binary' array= and record= options
 * CHANGE 'reset' does not affect locale, encoding, decimalsign settings
 * CHANGE 'set key textcolor rgb variable' will use plot colors for key entries

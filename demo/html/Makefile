@@ -2,17 +2,17 @@ all: html
 
 distclean: clean
 clean:
-	rm -f *.png *.gnu *.html *.dat epslatex* fit.log soundfit.par
+	rm -f *.png *.gnu *.html *.dat epslatex* fit.log soundfit.par *.tmp *.js *.?.svg *.??.svg
 
 GNUPLOT_LIB = ..
 
 #
-# Auto-generation of html demo set.
+# Auto-generation of the html demo set using the png terminal.
 #
 # Several of the demos need manual intervention:
 #	fontfile vector epslatex
 #
-html: airfoil.html approximate.html arrowstyle.html binary.html bivariat.html candlesticks.html circles.html contours.html controls.html datastrings.html discrete.html electron.html ellipse.html enhanced_utf8.html epslatex.html fillbetween.html fillcrvs.html fillstyle.html finance.html fit.html hidden.html hidden2.html histograms.html histograms2.html image.html image2.html index.html iterate.html key.html layout.html margins.html mgr.html multiaxis.html multimsh.html multiplt.html param.html pm3dcolors.html pm3d.html pm3dgamma.html pointsize.html polar.html poldat.html prob2.html prob.html rainbow.html random.html rectangle.html rgb_variable.html running_avg.html scatter.html simple.html singulr.html spline.html steps.html stringvar.html surface1.html surface2.html transparent.html transparent_solids.html textcolor.html textrotate.html tics.html timedat.html using.html vector.html world.html world2.html dashcolor.html animate2.html heatmaps.html
+html: airfoil.html approximate.html arrowstyle.html binary.html bivariat.html candlesticks.html circles.html contours.html controls.html datastrings.html discrete.html electron.html ellipse.html enhanced_utf8.html epslatex.html fillbetween.html fillcrvs.html fillstyle.html finance.html fit.html hidden.html hidden2.html histograms.html histograms2.html image.html image2.html index.html iterate.html key.html layout.html margins.html mgr.html multiaxis.html multimsh.html multiplt.html param.html pm3dcolors.html pm3d.html pm3dgamma.html pointsize.html polar.html poldat.html prob2.html prob.html rainbow.html random.html rectangle.html rgbalpha.html rgb_variable.html running_avg.html scatter.html simple.html singulr.html smooth.html spline.html steps.html stringvar.html surface1.html surface2.html transparent.html transparent_solids.html textcolor.html textrotate.html tics.html timedat.html using.html vector.html world.html world2.html dashcolor.html animate2.html heatmaps.html
 
 index.html: index.save
 	cp index.save index.html
@@ -20,14 +20,16 @@ index.html: index.save
 circles.html: $(GNUPLOT_LIB)/hidden2.dem ./webify.pl
 	export DEMOTERM="pngcairo truecolor font 'arial,8' size 500,300"; ./webify.pl circles
 
+ellipse.html: random.html
+
 hidden2.html: $(GNUPLOT_LIB)/hidden2.dem ./webify.pl
-	export DEMOTERM="png truecolor font 'arial,8' size 420,320"; ./webify.pl hidden2
+	export DEMOTERM="png truecolor font 'arial,8' size 450,320"; ./webify.pl hidden2
 
 image.html: $(GNUPLOT_LIB)/image.dem ./webify.pl
-	export DEMOTERM="png truecolor font 'arial,8' size 420,320"; ./webify.pl image
+	export DEMOTERM="png truecolor font 'arial,8' size 450,320"; ./webify.pl image
 
 image2.html: $(GNUPLOT_LIB)/image2.dem ./webify.pl
-	export DEMOTERM="png truecolor font 'arial,8' size 420,320"; ./webify.pl image2
+	export DEMOTERM="png truecolor font 'arial,8' size 450,320"; ./webify.pl image2
 
 rgbalpha.html: $(GNUPLOT_LIB)/rgbalpha.dem ./webify.pl
 	export DEMOTERM="png truecolor font 'arial,8' size 450,300"; ./webify.pl rgbalpha

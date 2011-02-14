@@ -378,6 +378,7 @@ extern double pointsize;
 #define border_north	(draw_border & NORTH)
 #define border_complete	((draw_border & 15) == 15)
 extern int draw_border;
+extern int user_border;
 extern int border_layer;
 
 extern struct lp_style_type border_lp;
@@ -398,7 +399,16 @@ extern enum PLOT_STYLE func_style;
 
 extern TBOOLEAN parametric;
 
+/* If last plot was a 3d one. */
 extern TBOOLEAN is_3d_plot;
+
+/* A macro to check whether 2D functionality is allowed in the last plot:
+   either the plot is a 2D plot, or it is a suitably oriented 3D plot (e.g. map).
+*/
+#define ALMOST2D      \
+    ( !is_3d_plot ||  \
+      ( fabs(fmod(surface_rot_z,90.0))<0.1  \
+        && (surface_rot_x>179.9 || surface_rot_x<0.1) ) )
 
 #ifdef VOLATILE_REFRESH
 extern int refresh_ok;		/* 0 = no;  2 = 2D ok;  3 = 3D ok */
@@ -407,6 +417,9 @@ extern int refresh_nplots;
 #define refresh_ok FALSE
 #endif
 extern TBOOLEAN volatile_data;
+
+/* WINDOWID to be filled by terminals running on X11 (x11, wxt, qt, ...) */
+extern int current_x11_windowid;
 
 /* Plot layer definitions are collected here. */
 /* Someday they might actually be used.       */
@@ -439,23 +452,23 @@ extern fill_style_type default_fillstyle;
 extern struct object default_rectangle;
 #define DEFAULT_RECTANGLE_STYLE { NULL, -1, 0, OBJ_RECTANGLE,	\
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
-	{1, LT_BACKGROUND, 0, 1.0, 0.0},			\
+	{1, LT_BACKGROUND, 0, 0, 1.0, 0.0, FALSE, DEFAULT_COLORSPEC}, \
 	{.rectangle = {0, {0,0.,0.,0.}, {0,0.,0.,0.}, {0,0.,0.,0.}, {0,0.,0.,0.}}} }
 
 extern struct object default_circle;
 #define DEFAULT_CIRCLE_STYLE { NULL, -1, 0, OBJ_CIRCLE,       \
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
-	{1, LT_BACKGROUND, 0, 1.0, 0.0},			\
+	{1, LT_BACKGROUND, 0, 0, 1.0, 0.0, FALSE, DEFAULT_COLORSPEC},			\
 	{.circle = {1, {0,0.,0.,0.}, {0,0.,0.,0.}, 0., 360. }} }
 
 #define DEFAULT_ELLIPSE_STYLE { NULL, -1, 0, OBJ_CIRCLE,       \
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
-	{1, LT_BACKGROUND, 0, 1.0, 0.0},			\
+	{1, LT_BACKGROUND, 0, 0, 1.0, 0.0, FALSE, DEFAULT_COLORSPEC},			\
 	{.ellipse = {1, {0,0.,0.,0.}, {0,0.,0.,0.}, 0. }} }
 
 #define DEFAULT_POLYGON_STYLE { NULL, -1, 0, OBJ_POLYGON,       \
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
-	{1, LT_BLACK, 0, 1.0, 0.0},			\
+	{1, LT_BLACK, 0, 0, 1.0, 0.0, FALSE, DEFAULT_COLORSPEC},			\
 	{.polygon = {0, NULL} } }
 
 #endif

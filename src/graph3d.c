@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.216 2008/12/15 00:48:17 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.222 2009/05/30 20:08:44 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graph3d.c */
@@ -65,9 +65,7 @@ static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.216 2008/12/15 00:48:17 
 #include "plot3d.h"
 #include "color.h"
 
-#ifdef WITH_IMAGE
 #include "plot.h"
-#endif
 
 /* HBB NEW 20040311: PM3D did already split up grid drawing into two
  * parts, one before, the other after drawing the main surfaces, as a
@@ -273,8 +271,7 @@ find_maxl_keys3d(struct surface_points *plots, int count, int *kcnt)
 	/* we draw a main entry if there is one, and we are
 	 * drawing either surface, or unlabelled contours
 	 */
-	if (this_plot->title && *this_plot->title && !this_plot->title_is_suppressed
-	    && (draw_surface || (draw_contour && !label_contours))) {
+	if (this_plot->title && *this_plot->title && !this_plot->title_is_suppressed) {
 	    ++cnt;
 	    len = estimate_strlen(this_plot->title);
 	    if (len > mlen)
@@ -693,10 +690,10 @@ do_3dplot(
     xcenter3d = ycenter3d = zcenter3d = 0.0;
     if (aspect_ratio_3D >= 2) {
 	if (yscale3d > xscale3d) {
-	    ycenter3d = 0.5*yscale3d/xscale3d - 1.0;
+	    ycenter3d = 1.0 - xscale3d/yscale3d;
 	    yscale3d = xscale3d;
 	} else if (xscale3d > yscale3d) {
-	    xcenter3d = 0.5*xscale3d/yscale3d - 1.0;
+	    xcenter3d = 1.0 - yscale3d/xscale3d;
 	    xscale3d = yscale3d;
 	}
 	if (aspect_ratio_3D >= 3)
@@ -741,6 +738,24 @@ do_3dplot(
 	plot_bounds.xright = map_x2;
 	plot_bounds.ybot = map_y2;
 	plot_bounds.ytop = map_y1;
+    }
+
+    /* Mar 2009 - This is a change!
+     * Define the clipping area in 3D to lie between the left-most and
+     * right-most graph box edges.  This is introduced for the benefit of
+     * zooming in the canvas terminal.  It may or may not make any practical
+     * difference for other terminals.  If it causes problems, then we will need
+     * a separate BoundingBox structure to track the actual 3D graph box.
+     */
+    else {
+	int xl, xb, xr, xf, yl, yb, yr, yf;
+
+	map3d_xy(zaxis_x, zaxis_y, base_z, &xl, &yl);
+	map3d_xy(back_x , back_y , base_z, &xb, &yb);
+	map3d_xy(right_x, right_y, base_z, &xr, &yr);
+	map3d_xy(front_x, front_y, base_z, &xf, &yf);
+	plot_bounds.xleft = GPMIN(xl, xb);	/* Always xl? */
+	plot_bounds.xright = GPMAX(xb, xr);	/* Always xr? */
     }
 
     /* PLACE TITLE */
@@ -1033,7 +1048,7 @@ do_3dplot(
 		    if (lkey) {
 			key_sample_line(xl, yl);
 		    }
-		    if (!(hidden3d && draw_surface))
+		    if (!(hidden3d && draw_surface && !this_plot->opt_out_of_surface))
 			plot3d_impulses(this_plot);
 		    break;
 		}
@@ -1041,7 +1056,7 @@ do_3dplot(
 	    case FSTEPS:
 	    case HISTEPS:
 	    case LINES:
-		if (draw_surface) {
+		if (draw_surface && !this_plot->opt_out_of_surface) {
 		    if (lkey) {
 			if (this_plot->lp_properties.use_palette)
 			    key_sample_line_pm3d(this_plot, xl, yl);
@@ -1068,7 +1083,7 @@ do_3dplot(
 	    case FINANCEBARS:
 	    case CIRCLES:
 	    case POINTSTYLE:
-		if (draw_surface) {
+		if (draw_surface && !this_plot->opt_out_of_surface) {
 		    if (lkey) {
 			if (this_plot->lp_properties.use_palette)
 			    key_sample_point_pm3d(this_plot, xl, yl, this_plot->lp_properties.p_type);
@@ -1081,7 +1096,7 @@ do_3dplot(
 		break;
 
 	    case LINESPOINTS:
-		if (draw_surface) {
+		if (draw_surface && !this_plot->opt_out_of_surface) {
 
 		    /* put lines */
 		    if (lkey) {
@@ -1113,7 +1128,7 @@ do_3dplot(
 		break;
 
 	    case DOTS:
-		if (draw_surface) {
+		if (draw_surface && !this_plot->opt_out_of_surface) {
 		    this_plot->lp_properties.p_type = -1;
 		    this_plot->lp_properties.pointflag = TRUE;
 		    if (lkey) {
@@ -1139,7 +1154,7 @@ do_3dplot(
 		break;
 
 	    case PM3DSURFACE:
-		if (draw_surface) {
+		if (draw_surface && !this_plot->opt_out_of_surface) {
 		    if (can_pm3d && PM3D_IMPLICIT != pm3d.implicit) {
 			pm3d_draw_one(this_plot);
 			if (!pm3d_order_depth)
@@ -1156,7 +1171,6 @@ do_3dplot(
 	    case HISTOGRAMS: /* Cannot happen */
 		break;
 
-#ifdef WITH_IMAGE
 	    case IMAGE:
 		/* Plot image using projection of 3D plot coordinates to 2D viewing coordinates. */
 		this_plot->image_properties.type = IC_PALETTE;
@@ -1173,7 +1187,7 @@ do_3dplot(
 		this_plot->image_properties.type = IC_RGBA;
 		plot_image_or_update_axes(this_plot, FALSE);
 		break;
-#endif
+
 	    }			/* switch(plot-style) */
 
 	    /* move key on a line */
@@ -2570,9 +2584,14 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 
 	ignore_enhanced(Z_AXIS.label.noenhanced);
 	apply_pm3dcolor(&(Z_AXIS.label.textcolor),t);
-	write_multiline(x, y, Z_AXIS.label.text,
-			h_just, v_just, 0,
-			Z_AXIS.label.font);
+	if (Z_AXIS.label.rotate != 0 && (term->text_angle)(Z_AXIS.label.rotate)) {
+	    write_multiline(x, y, Z_AXIS.label.text,
+			    h_just, v_just, Z_AXIS.label.rotate, Z_AXIS.label.font);
+	    (term->text_angle)(0);
+	} else {
+	    write_multiline(x, y, Z_AXIS.label.text,
+			    h_just, v_just, 0, Z_AXIS.label.font);
+	}
 	reset_textcolor(&(Z_AXIS.label.textcolor),t);
 	ignore_enhanced(FALSE);
     }
@@ -2602,9 +2621,13 @@ xtick_callback(
 
     map3d_xyz(place, xaxis_y, base_z, &v1);
     if (grid.l_type > LT_NODRAW) {
+	if (t->layer)
+	    (t->layer)(TERM_LAYER_BEGIN_GRID);
 	/* to save mapping twice, map non-axis y */
 	map3d_xyz(place, other_end, base_z, &v2);
 	draw3d_line(&v1, &v2, &grid);
+	if (t->layer)
+	    (t->layer)(TERM_LAYER_END_GRID);
     }
     if ((X_AXIS.ticmode & TICS_ON_AXIS)
 	&& !Y_AXIS.log
@@ -2680,8 +2703,12 @@ ytick_callback(
 
     map3d_xyz(yaxis_x, place, base_z, &v1);
     if (grid.l_type > LT_NODRAW) {
+	if (t->layer)
+	    (t->layer)(TERM_LAYER_BEGIN_GRID);
 	map3d_xyz(other_end, place, base_z, &v2);
 	draw3d_line(&v1, &v2, &grid);
+	if (t->layer)
+	    (t->layer)(TERM_LAYER_END_GRID);
     }
     if (Y_AXIS.ticmode & TICS_ON_AXIS
 	&& !X_AXIS.log
@@ -2752,6 +2779,7 @@ ztick_callback(
     int len = (text ? axis_array[axis].ticscale : axis_array[axis].miniticscale)
 	* (axis_array[axis].tic_in ? 1 : -1) * (term->h_tic);
     vertex v1, v2, v3;
+    struct termentry *t = term;
 
     (void) axis;		/* avoid -Wunused warning */
 
@@ -2760,10 +2788,14 @@ ztick_callback(
     else
 	map3d_xyz(zaxis_x, zaxis_y, place, &v1);
     if (grid.l_type > LT_NODRAW) {
+	if (t->layer)
+	    (t->layer)(TERM_LAYER_BEGIN_GRID);
 	map3d_xyz(back_x, back_y, place, &v2);
 	map3d_xyz(right_x, right_y, place, &v3);
 	draw3d_line(&v1, &v2, &grid);
 	draw3d_line(&v2, &v3, &grid);
+	if (t->layer)
+	    (t->layer)(TERM_LAYER_END_GRID);
     }
     v2.x = v1.x + len / (double)xscaler;
     v2.y = v1.y;

@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: svg.trm,v 1.97 2008/11/29 03:38:52 sfeam Exp $
+ * $Id: svg.trm,v 1.101 2009/05/31 07:08:44 sfeam Exp $
  */
 
 /*------------------------------------------------------------------------------------------------------------------------------------
@@ -694,7 +694,13 @@ SVG_init ()
 	     (unsigned int) (term->xmax / SVG_SCALE),
 	     (unsigned int) (term->ymax / SVG_SCALE));
     fprintf (gpoutfile, " xmlns=\"http://www.w3.org/2000/svg\"\n");
-    fprintf (gpoutfile, " xmlns:xlink=\"http://www.w3.org/1999/xlink\">\n");
+    fprintf (gpoutfile, " xmlns:xlink=\"http://www.w3.org/1999/xlink\"\n");
+#if (0)
+    /* This should be required, but Firefox gets it totally wrong */
+    fprintf (gpoutfile, " xml:space=\"preserve\"\n");
+#endif
+    fprintf (gpoutfile, ">\n\n");
+
     fprintf (gpoutfile,
 	     "<desc>Produced by GNUPLOT %s patchlevel %s </desc>\n\n",
 	     gnuplot_version, gnuplot_patchlevel);
@@ -1485,9 +1491,7 @@ TERM_TABLE_START (svg_driver)
    SVG_previous_palette,
    SVG_set_color,
    SVG_filled_polygon
-#ifdef WITH_IMAGE
-    , NULL
-#endif
+    , NULL	/* image */
    , ENHsvg_OPEN, ENHsvg_FLUSH, ENHsvg_writec
    , SVG_layer	/* layer */
    , SVG_path 	/* path */
@@ -1527,10 +1531,8 @@ START_HELP(svg)
 " by a factor of <w>.",
 "",
 " <font> is the name of the default font to use (default Arial) and",
-" <fontsize> is the font size (in points, default 12). Gnuplot does not",
-" currently provide a mechanism for embedding fonts in the output file,",
-" so svg viewing programs may substitute other fonts when the file is",
-" displayed.",
+" <fontsize> is the font size (in points, default 12). SVG viewing",
+" programs may substitute other fonts when the file is displayed.",
 "",
 " The svg terminal supports an enhanced text mode, which allows font",
 " and other formatting commands to be embedded in labels and other text",
@@ -1543,6 +1545,7 @@ START_HELP(svg)
 " resulting SVG output file.  This file may either itself contain a font,",
 " or may contain the records necessary to create a hypertext reference to",
 " the desired font. Gnuplot will look for the requested file using the",
-" directory list in the GNUPLOT_FONTPATH environmental variable."
+" directory list in the GNUPLOT_FONTPATH environmental variable.",
+" NB: You must embed an svg font, not a TrueType or PostScript font."
 END_HELP(svg)
 #endif

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.188 2008/12/10 06:53:13 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.193 2009/04/05 04:01:30 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -330,9 +330,7 @@ get_data(struct curve_points *current_plot)
     int max_cols, min_cols;    /* allowed range of column numbers */
     double v[MAXDATACOLS];
     int storetoken = current_plot->token;
-#ifdef WITH_IMAGE
     struct coordinate GPHUGE *cp;
-#endif
 
     TBOOLEAN variable_color = FALSE;
     double   variable_color_value;
@@ -451,7 +449,6 @@ get_data(struct curve_points *current_plot)
 	expect_string( 3 );
 	break;
 
-#ifdef WITH_IMAGE
     case IMAGE:
 	min_cols = 3;
 	max_cols = 3;
@@ -466,7 +463,6 @@ get_data(struct curve_points *current_plot)
         min_cols = 6;
         max_cols = 6;
 	break;
-#endif
 
 #ifdef EAM_OBJECTS
     case CIRCLES:	/* 3 + possible variable color */
@@ -517,20 +513,21 @@ get_data(struct curve_points *current_plot)
 	    cp_extend(current_plot, i + i + 1000);
 	}
 
-	/* Allow for optional columns.  Currently only used for a few styles, */
-	/* but could be extended to a more general mechanism.                 */
-	variable_color_value = 0;
-	if (variable_color) {
-	    static char *errmsg = "Not enough columns for variable color";
-	    switch (current_plot->plot_style) {
-	    case VECTOR:	if (j < 5) int_error(NO_CARET,errmsg);
-	    case CIRCLES: 	if (j < 4) int_error(NO_CARET,errmsg);
-	    case BOXES:		if (j < 3) int_error(NO_CARET,errmsg);
-				variable_color_value = v[--j];
-	    default:		break;
-	    }
-	}
-
+        if (j > 0) {
+            /* Allow for optional columns.  Currently only used for a few styles, */
+            /* but could be extended to a more general mechanism.                 */
+            variable_color_value = 0;
+            if (variable_color) {
+                static char *errmsg = "Not enough columns for variable color";
+                switch (current_plot->plot_style) {
+                case VECTOR:	if (j < 5) int_error(NO_CARET,errmsg);
+                case CIRCLES: 	if (j < 4) int_error(NO_CARET,errmsg);
+                case BOXES:	if (j < 3) int_error(NO_CARET,errmsg);
+                    variable_color_value = v[--j];
+                default:	break;
+                }
+            }
+        }
 	switch (j) {
 	default:
 	    {
@@ -559,7 +556,6 @@ get_data(struct curve_points *current_plot)
 	    continue;
 
 	case DF_FIRST_BLANK:
-#if defined(WITH_IMAGE)
 	    /* The binary input routines generate DF_FIRST_BLANK at the end
 	     * of scan lines, so that the data may be used for the isometric
 	     * splots.  Rather than turning that off inside the binary
@@ -571,7 +567,7 @@ get_data(struct curve_points *current_plot)
 	    ||  current_plot->plot_style == RGBIMAGE
 	    ||  current_plot->plot_style == RGBA_IMAGE)
 		continue;
-#endif
+
 	    /* break in data, make next point undefined */
 	    /* FIXME: We really should distinguish between a blank	*/
 	    /*        line and an undefined value on a non-blank line.	*/
@@ -731,7 +727,6 @@ get_data(struct curve_points *current_plot)
 		    i++;
 		    break;
 
-#ifdef WITH_IMAGE
 		case IMAGE:  /* x_center y_center color_value */
 		    store2d_point(current_plot, i, v[0], v[1], v[0], v[0], v[1],
 				  v[1], v[2]);
@@ -740,7 +735,6 @@ get_data(struct curve_points *current_plot)
 			COLOR_AXIS, current_plot->noautoscale, NOOP, cp->CRD_COLOR=v[2]);
 		    i++;
 		    break;
-#endif
 
 		case POINTSTYLE: /* x, y, variable point size or variable color */
 		case LINESPOINTS:
@@ -847,11 +841,7 @@ get_data(struct curve_points *current_plot)
 	    {   /* x, y, ylow, yhigh, width  or  x open low high close */
 		switch (current_plot->plot_style) {
 		default:
-#ifdef WITH_IMAGE
-		    int_warn(storetoken, "Five col. plot style must be boxerrorbars, financebars, candlesticks, or rgbimage. Setting to boxerrorbars");
-#else
-		    int_warn(storetoken, "Five col. plot style must be boxerrorbars, financebars or candlesticks. Setting to boxerrorbars");
-#endif
+		    int_warn(storetoken, "Unrecognized 5 column plot style; resetting to boxerrorbars");
 		    current_plot->plot_style = BOXERROR;
 		    /*fall through */
 
@@ -867,10 +857,9 @@ get_data(struct curve_points *current_plot)
 				  v[2], v[3], v[4]);
 		    break;
 
-#ifdef WITH_IMAGE
 		case RGBIMAGE:  /* x_center y_center r_value g_value b_value (rgb) */
 		    goto images;
-#endif
+
 		}
 		break;
 	    }
@@ -891,7 +880,6 @@ get_data(struct curve_points *current_plot)
 		store2d_point(current_plot, i++, v[0], v[1], v[2], v[3], v[4],
 			      v[5], 0.0);
 		break;
-#ifdef WITH_IMAGE
 images:
             case RGBA_IMAGE:  /* x_cent y_cent red green blue alpha */
             case RGBIMAGE:    /* x_cent y_cent red green blue */
@@ -906,7 +894,6 @@ images:
                 cp->CRD_A = v[5];	/* Alpha channel */
                 i++;
                 break;
-#endif
 	    }
 
 	}                       /*switch */
@@ -1435,7 +1422,7 @@ eval_plots()
 	    if (histogram_rightmost > 0)
 		newhist_start = histogram_rightmost + 2;
 
-	    lp.l_type = LT_UNDEFINED;
+	    lp.l_type = line_num;
 	    fs.fillpattern = LT_UNDEFINED;
 
 	    do {
@@ -1624,6 +1611,19 @@ eval_plots()
 			    xtitle[0] = '\0';       /* Remove default title . */
 		    }
 		    c_token++;
+
+		    if (almost_equals(c_token,"col$umnheader")) {
+			df_set_key_title_columnhead(this_plot->plot_type);
+		    } else 
+
+#ifdef BACKWARDS_COMPATIBLE
+		    /* Annoying backwards-compatibility hack - deprecate! */
+		    if (isanumber(c_token)) {
+			c_token--;
+			df_set_key_title_columnhead(this_plot->plot_type);
+		    } else
+#endif
+
 		    if (!(this_plot->title = try_to_get_string()))
 			int_error(c_token, "expecting \"title\" for plot");
 		    set_title = TRUE;
@@ -1658,12 +1658,11 @@ eval_plots()
 			/* read a possible option for 'with filledcurves' */
 			get_filledcurves_style_options(&this_plot->filledcurves_options);
 		    }
-#ifdef WITH_IMAGE
 		    if (this_plot->plot_style == IMAGE
 		    ||  this_plot->plot_style == RGBIMAGE
 		    ||  this_plot->plot_style == RGBA_IMAGE)
 			get_image_options(&this_plot->image_properties);
-#endif
+
 		    if ((this_plot->plot_type == FUNC) &&
 			((this_plot->plot_style & PLOT_STYLE_HAS_ERRORBAR)
 			|| (this_plot->plot_style == LABELPOINTS)
@@ -1707,7 +1706,7 @@ eval_plots()
 		    if (almost_equals(c_token,"whisker$bars")) {
 			this_plot->arrow_properties.head = BOTH_HEADS;
 			c_token++;
-			if (isanumber(c_token) || type_udv(c_token))
+			if (isanumber(c_token) || type_udv(c_token) == INTGR || type_udv(c_token) == CMPLX)
 			    this_plot->arrow_properties.head_length = real_expression();
 		    }
 		}
@@ -1915,11 +1914,9 @@ eval_plots()
 						    + this_plot->histogram->startpattern;
 	    }
 
-#ifdef WITH_IMAGE
 	    /* Styles that use palette */
 	    if (this_plot->plot_style == IMAGE)
 		this_plot->lp_properties.use_palette = 1;
-#endif /* WITH_IMAGE */
 
 	    /* we can now do some checks that we deferred earlier */
 
@@ -1963,13 +1960,11 @@ eval_plots()
 	    }
 
 	    if (!in_parametric
-#ifdef WITH_IMAGE
 		&& this_plot->plot_style != IMAGE
 		&& this_plot->plot_style != RGBIMAGE
                 && this_plot->plot_style != RGBA_IMAGE
 		/* don't increment the default line/point properties if
 		 * this_plot is an image */
-#endif /* WITH_IMAGE */
 	    ) {
 		if (this_plot->plot_style & PLOT_STYLE_HAS_POINT)
 		    ++point_num;
@@ -2035,7 +2030,6 @@ eval_plots()
 		/* now that we know the plot style, adjust the x- and yrange */
 		/* adjust_range(this_plot); no longer needed */
 
-#ifdef WITH_IMAGE
 		/* Images are defined by a grid representing centers of pixels.
 		 * Compensate for extent of the image so `set autoscale fix`
 		 * uses outer edges of outer pixels in axes adjustment.
@@ -2046,7 +2040,6 @@ eval_plots()
 		    this_plot->image_properties.type = IC_PALETTE;
 		    plot_image_or_update_axes(this_plot, TRUE);
 		}
-#endif
 
 	    }
 

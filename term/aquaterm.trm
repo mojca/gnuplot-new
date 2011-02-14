@@ -1,5 +1,5 @@
 /* -*- objc -*-
- * $Id: aquaterm.trm,v 1.39 2008/06/19 17:49:09 sfeam Exp $
+ * $Id: aquaterm.trm,v 1.42 2009/07/04 20:14:36 broeker Exp $
  *
  */
 
@@ -66,9 +66,7 @@ TERM_PUBLIC int AQUA_make_palette __PROTO((t_sm_palette *palette));
 TERM_PUBLIC void AQUA_previous_palette __PROTO((void));
 TERM_PUBLIC void AQUA_set_color __PROTO((t_colorspec *));
 TERM_PUBLIC void AQUA_filled_polygon __PROTO((int points, gpiPoint *corners));
-# ifdef WITH_IMAGE
 TERM_PUBLIC void AQUA_image __PROTO((unsigned, unsigned, coordval *, gpiPoint *, t_imagecolor));
-# endif
 TERM_PUBLIC void ENHAQUA_put_text __PROTO((unsigned int x, unsigned int y, const char str[]));
 TERM_PUBLIC void ENHAQUA_open __PROTO((char * fontname, double fontsize,
 				       double base, TBOOLEAN widthflag, TBOOLEAN showflag,
@@ -200,6 +198,8 @@ AQUA_options()
 
 	if (END_OF_COMMAND)
 	    int_error(c_token,"expecting y size");
+	if (equals(c_token, ","))
+	    c_token++;
 	value = real_expression();
 	if (value < 2 || value > 2048)
 	    int_error(c_token,"y size out of range");
@@ -279,7 +279,7 @@ AQUA_options()
   if (AQUA_title[0]=='\0') /* always set title */
     sprintf(AQUA_title, "Figure %d", AQUA_plotRef);
   /* Save options back into options string in normalized format */
-  sprintf(term_options, "%d title \"%s\" size %d %d font \"%s,%g\" %s %s",
+  sprintf(term_options, "%d title \"%s\" size %d,%d font \"%s,%g\" %s %s",
 	  AQUA_plotRef,
 	  AQUA_title,
 	  (unsigned int) (AQUA_xSize/AQUA_RESOLUTION), (unsigned int) (AQUA_ySize/AQUA_RESOLUTION),
@@ -714,8 +714,6 @@ AQUA_previous_palette()
 {
 }
 
-#ifdef WITH_IMAGE
-
 TERM_PUBLIC void
 AQUA_image (unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_imagecolor color_mode)
 {
@@ -759,8 +757,6 @@ AQUA_image (unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t
   }
   return;
 }
-
-#endif /* WITH_IMAGE */
 
 /*
  * Per Persson 20041019
@@ -894,11 +890,9 @@ TERM_TABLE_START(aqua_driver)
   , AQUA_make_palette,
   AQUA_previous_palette,
   AQUA_set_color,
-  AQUA_filled_polygon
-#ifdef WITH_IMAGE
-  , AQUA_image
-#endif
-    , ENHAQUA_open, ENHAQUA_flush, ENHAQUA_writec
+  AQUA_filled_polygon,
+  AQUA_image,
+  ENHAQUA_open, ENHAQUA_flush, ENHAQUA_writec
 TERM_TABLE_END(aqua_driver)
 
 #undef LAST_TERM

@@ -13,6 +13,12 @@ HELPFILE=@GIHDIR@/gnuplot.gih
 # Default X11 driver location
 X11_DRIVER_DIR=$(pkglibexecdir)
 
+# Default lua driver location
+LUA_DRIVER_DIR=$(pkglibexecdir)
+
+# Default javascript location
+GNUPLOT_JS_DIR=$(pkgdatadir)/$(VERSION_MAJOR)/js
+
 # Default Postscript prologues location
 GNUPLOT_PS_DIR=$(pkgdatadir)/$(VERSION_MAJOR)/PostScript
 
@@ -20,11 +26,12 @@ GNUPLOT_PS_DIR=$(pkgdatadir)/$(VERSION_MAJOR)/PostScript
 
 bin_PROGRAMS = gnuplot
 noinst_PROGRAMS = bf_test
+binonly: $(bin_PROGRAMS)
 
 transform = @program_transform_name@
 GNUPLOT_X11 = `echo gnuplot_x11 | sed '$(transform)'`$(EXEEXT)
 
-AM_CPPFLAGS = -I../term -I$(top_srcdir)/term -DBINDIR=\"$(bindir)\" -DX11_DRIVER_DIR=\"$(X11_DRIVER_DIR)\" -DGNUPLOT_PS_DIR=\"$(GNUPLOT_PS_DIR)\" -DCONTACT=\"$(EMAIL)\" -DHELPFILE=\"$(HELPFILE)\" -DGNUPLOT_X11=\"$(GNUPLOT_X11)\"
+AM_CPPFLAGS = -I../term -I$(top_srcdir)/term -DBINDIR=\"$(bindir)\" -DX11_DRIVER_DIR=\"$(X11_DRIVER_DIR)\" -DGNUPLOT_PS_DIR=\"$(GNUPLOT_PS_DIR)\" -DGNUPLOT_JS_DIR=\"$(GNUPLOT_JS_DIR)\"  -DCONTACT=\"$(EMAIL)\" -DHELPFILE=\"$(HELPFILE)\" -DGNUPLOT_X11=\"$(GNUPLOT_X11)\"
 
 gnuplot_SOURCES = alloc.c alloc.h ansichek.h axis.c axis.h binary.c \
 breaders.c breaders.h bitmap.c bitmap.h color.c color.h command.c \
@@ -43,11 +50,20 @@ util3d.c util3d.h variable.c variable.h version.c version.h
 
 gnuplot_LDADD = $(TERMLIBS) $(TERMXLIBS) $(WX_LIBS)
 
+pkglibexec_PROGRAMS = 
+
 if BUILD_GNUPLOT_X11
-pkglibexec_PROGRAMS = gnuplot_x11
+pkglibexec_PROGRAMS += gnuplot_x11
 gnuplot_x11_SOURCES = gplt_x11.c gplt_x11.h gpexecute.c gpexecute.h mousecmn.h
 XLIBS = @LIBRARIES_FOR_X@
 gnuplot_x11_LDADD = getcolor_x11.o $(XLIBS)
+endif
+
+if BUILD_LUA
+gnuplot_tikz_lua_SOURCES =
+pkglibexec_PROGRAMS += gnuplot-tikz.lua
+gnuplot-tikz.lua: $(top_srcdir)/term/lua/gnuplot-tikz.lua
+	cp $(top_srcdir)/term/lua/gnuplot-tikz.lua .
 endif
 
 getcolor_x11.o: getcolor.c
@@ -74,7 +90,7 @@ gnuplot_SOURCES += wxterminal/wxt_gui.cpp
 endif
 
 if BUILD_GPCAIRO
-gnuplot_SOURCES += wxterminal/gp_cairo.c
+gnuplot_SOURCES += wxterminal/gp_cairo.c wxterminal/gp_cairo_helpers.c
 endif
 
 ## we don't need COREOBJS, but CORETERM
